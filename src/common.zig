@@ -4,6 +4,11 @@ const value = @import("value.zig");
 pub const OpCode = enum(u8) {
     Return,
     Constant,
+    Negate,
+    Add,
+    Substract,
+    Multiply,
+    Divide,
     pub fn fromU8(byte: u8) OpCode {
         return @enumFromInt(byte);
     }
@@ -32,6 +37,10 @@ pub const Chunk = struct {
     }
     pub fn write(self: *Chunk, byte: u8,line:usize) !void {
         try self.code.append(byte);
+        try self.lines.append(line);
+    }
+    pub fn writeOp(self: *Chunk, opCode: OpCode,line:usize) !void {
+        try self.code.append(@intFromEnum(opCode));
         try self.lines.append(line);
     }
     pub fn addConstant(self: *Chunk, value_: value.Value) !usize {
