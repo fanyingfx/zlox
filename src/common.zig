@@ -2,13 +2,13 @@ const std = @import("std");
 const value = @import("value.zig");
 
 pub const OpCode = enum(u8) {
-    Return,
-    Constant,
-    Negate,
-    Add,
-    Substract,
-    Multiply,
-    Divide,
+    op_return,
+    op_constant,
+    op_negate,
+    op_add,
+    op_substract,
+    op_multiply,
+    op_divide,
     pub fn fromU8(byte: u8) OpCode {
         return @enumFromInt(byte);
     }
