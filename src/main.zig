@@ -10,29 +10,33 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var chunk = Chunk.init(allocator);
-    var vm = VM{
-        .chunk = undefined,
-        .ip = undefined,
-        .stack = undefined,
-        .stackTop = undefined,
-    };
-    vm.init();
+    defer chunk.deinit();
+    var vm = VM.init(&chunk);
     defer vm.deinit();
-    const c1 = try chunk.addConstant(1.2);
-    try chunk.writeOp(.Constant, 123);
-    try chunk.write(@intCast(c1), 123);
-    const c2 = try chunk.addConstant(3.4);
-    try chunk.writeOp(.Constant, 123);
-    try chunk.write(@intCast(c2), 123);
-    try chunk.writeOp(.Add, 123);
-    const c3 = try chunk.addConstant(5.6);
-    try chunk.writeOp(.Constant, 123);
-    try chunk.write(@intCast(c3), 123);
-    try chunk.writeOp(.Divide, 123);
-    try chunk.writeOp(.Return, 123);
-    if (comptime config.enable_debug) {
-        debug.disassembleChunk(&chunk, "test chunk");
+    const args = try std.process.argsAlloc(allocator);
+    if (args.len == 1) {
+        try repl(&vm);
+    } else if (args.len == 2) {
+        try runFile(&vm,args[1]);
+    } else {
+        std.debug.print("Usage: clox [path]\n", .{});
+        std.posix.exit(64);
     }
-    try vm.interpret(&chunk);
-    chunk.deinit();
+}
+fn repl(vm: *VM) !void {
+    var line: [1024]u8 = undefined;
+    while (true) {
+        std.debug.print("> ", .{});
+        const len = try std.io.getStdIn().read(&line);
+        try vm.interpret(line[0..len]);
+    }
+}
+fn runFile(vm:*VM,path:[]const u8)!void{
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    const source = try std.fs.cwd().readFileAlloc(arena_alloc,path,4096);
+    try vm.interpret(source);
+
 }

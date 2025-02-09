@@ -18,10 +18,10 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
     }
     const instruction = OpCode.fromU8(chunk.code.items[offset]);
     switch (instruction) {
-        .Return,.Negate,.Add,.Divide,.Multiply,.Substract => {
+        .op_return,.op_negate,.op_add,.op_divide,.op_multiply,.op_substract => {
             return simpleInstruction(instruction.name(), offset);
         },
-        .Constant,
+        .op_constant,
         => {
             return constantInstruction(@tagName(instruction), chunk, offset);
         },

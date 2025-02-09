@@ -1,13 +1,14 @@
 const std = @import("std");
 const config = @import("config");
 const debug = @import("debug.zig");
+const compiler = @import("compiler.zig");
 const InterpretResult = error{
     CompileError,
     RuntimeError,
 };
 
-const common = @import("common.zig");
-const Chunk = common.Chunk;
+const Chunk = @import("common.zig").Chunk;
+const OpCode = @import("common.zig").OpCode;
 const value = @import("value.zig");
 const Value = value.Value;
 const STACK_MAX = 256;
@@ -17,8 +18,14 @@ pub const VM = struct {
     stack: [STACK_MAX]Value,
     stackTop: usize,
 
-    pub fn init(vm: *VM) void {
-        vm.resetStack();
+    pub fn init(chunk: *Chunk) VM {
+        return .{
+            .chunk = chunk,
+            .ip = 0,
+            .stack = undefined,
+            .stackTop = 0,
+        };
+        // vm.resetStack();
     }
     pub fn deinit(self: *VM) void {
         _ = self;
@@ -34,8 +41,15 @@ pub const VM = struct {
     pub fn resetStack(vm: *VM) void {
         vm.stackTop = 0;
     }
-    pub fn interpret(vm: *VM, chunk: *Chunk) !void {
-        vm.chunk = chunk;
+    pub fn interpret(vm: *VM, source: []const u8) !void {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        const arena_alloc = arena.allocator();
+
+        var chunk = Chunk.init(arena_alloc);
+        defer chunk.deinit();
+        compiler.compile(source, &chunk);
+        vm.chunk = &chunk;
         vm.ip = 0;
         return vm.run();
     }
@@ -47,13 +61,13 @@ pub const VM = struct {
         const idx: usize = @intCast(vm.read_byte());
         return vm.chunk.constants.items[idx];
     }
-    inline fn binary_op(vm:*VM,op: common.OpCode, a: Value, b: Value) void {
+    inline fn binary_op(vm: *VM, op: OpCode, a: Value, b: Value) void {
         switch (op) {
-            .Add => vm.push(a + b),
-            .Multiply => vm.push(a * b),
-            .Substract => vm.push(a - b),
-            .Divide => vm.push(a / b),
-            else => std.debug.panic("unknow binary operator",.{}),
+            .op_add => vm.push(a + b),
+            .op_multiply => vm.push(a * b),
+            .op_substract => vm.push(a - b),
+            .op_divide => vm.push(a / b),
+            else => std.debug.panic("unknow binary operator", .{}),
         }
     }
     fn run(vm: *VM) !void {
@@ -69,26 +83,23 @@ pub const VM = struct {
                 std.debug.print("\n", .{});
                 _ = debug.disassembleInstruction(vm.chunk, vm.ip);
             }
-            const instruction = common.OpCode.fromU8(vm.read_byte());
+            const instruction =OpCode.fromU8(vm.read_byte());
             switch (instruction) {
-                .Constant => {
+                .op_constant => {
                     const constant = vm.read_constant();
                     vm.push(constant);
-                    value.printValue(constant);
-                    std.debug.print("\n", .{});
                 },
-                .Add, .Substract, .Multiply, .Divide => {
+                .op_add, .op_substract, .op_multiply, .op_divide => {
                     const op = instruction;
                     const b = vm.pop();
                     const a = vm.pop();
-                    vm.binary_op(op,a,b);
+                    vm.binary_op(op, a, b);
                 },
-                .Negate => {
+                .op_negate => {
                     vm.push(-vm.pop());
                 },
-                .Return => {
-                    value.printValue(vm.pop());
-                    std.debug.print("\n", .{});
+                .op_return => {
+                    value.printValueLn(vm.pop());
                     return;
                 },
             }

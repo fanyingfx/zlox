@@ -35,16 +35,16 @@ pub const Chunk = struct {
             // .allocator = allocator,
         };
     }
-    pub fn write(self: *Chunk, byte: u8,line:usize) !void {
-        try self.code.append(byte);
-        try self.lines.append(line);
+    pub fn write(self: *Chunk, byte: u8,line:usize) void {
+        self.code.append(byte) catch unreachable;
+        self.lines.append(line) catch unreachable;
     }
-    pub fn writeOp(self: *Chunk, opCode: OpCode,line:usize) !void {
-        try self.code.append(@intFromEnum(opCode));
-        try self.lines.append(line);
+    pub fn writeOp(self: *Chunk, opCode: OpCode,line:usize) void {
+        self.code.append(@intFromEnum(opCode)) catch unreachable;
+        self.lines.append(line) catch unreachable;
     }
-    pub fn addConstant(self: *Chunk, value_: value.Value) !usize {
-        try self.constants.append(value_);
+    pub fn addConstant(self: *Chunk, value_: value.Value) usize {
+        self.constants.append(value_) catch unreachable ;
         return self.constants.items.len - 1;
     }
     pub fn deinit(self: *Chunk) void {

@@ -5,3 +5,6 @@ pub const ValueArray = std.ArrayList(Value);
 pub fn printValue(v:Value)void{
     std.debug.print("{d}",.{v});
 }
+pub fn printValueLn(v:Value)void{
+    std.debug.print("{d}\n",.{v});
+}
