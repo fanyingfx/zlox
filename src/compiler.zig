@@ -10,6 +10,8 @@ const nil_val = @import("value.zig").nil_val;
 const bool_val = @import("value.zig").bool_val;
 const Obj=@import("object.zig").Obj;
 const ObjString =@import("object.zig").ObjString;
+// const VM = @import("vm.zig").VM;
+const Collector = @import("collector.zig");
 
 const Prececdence = enum {
     prec_none,
@@ -38,15 +40,17 @@ pub const Compiler = struct {
     previous: Token,
     scanner: *Scanner,
     compilingChunk: *Chunk,
-    allocator: std.mem.Allocator,
+    // allocator: std.mem.Allocator,
+    collector:*Collector,
 
-    pub fn init(allocator: std.mem.Allocator, scanner: *Scanner, chunk: *Chunk) Compiler {
+    pub fn init(collector: *Collector, scanner: *Scanner, chunk: *Chunk) Compiler {
         return .{
             .current = undefined,
             .previous = undefined,
             .scanner = scanner,
             .compilingChunk = chunk,
-            .allocator = allocator,
+            .collector=collector
+            // .allocator = allocator,
         };
     }
     pub fn advance(parser: *Compiler) void {
@@ -138,9 +142,10 @@ pub const Compiler = struct {
     fn parseString(parser: *Compiler) void {
         const prev_tok = parser.previous;
         const str = parser.scanner.source[prev_tok.start + 1 .. prev_tok.start + prev_tok.length - 1];
-        const objString = parser.allocator.create(ObjString) catch unreachable;
-        objString.obj=.{ .@"type" =.obj_string,.next=null};
-        objString.chars = parser.allocator.dupe(u8,str) catch unreachable;
+        const objString = parser.collector.allocateObjString(str);
+        // const objString = parser.allocator.create(ObjString) catch unreachable;
+        // objString.obj=.{ .@"type" =.obj_string,.next=null};
+        // objString.chars = parser.allocator.dupe(u8,str) catch unreachable;
         parser.emitConst(objString.obj_val());
 
     }
@@ -205,9 +210,9 @@ pub const Compiler = struct {
     }
 };
 
-pub fn compile(allocator: std.mem.Allocator, source: []const u8, chunk: *Chunk) void {
+pub fn compile(collector:*Collector, source: []const u8, chunk: *Chunk) void {
     var scanner = Scanner.init(source);
-    var parser = Compiler.init(allocator, &scanner, chunk);
+    var parser = Compiler.init(collector, &scanner, chunk);
     parser.advance();
     parser.parseExpression();
     parser.consume(.tok_eof, "Expected end of expression.");
