@@ -5,6 +5,9 @@ const OpCode = @import("common.zig").OpCode;
 const Value = @import("value.zig").Value;
 const Token = @import("scanner.zig").Token;
 const TokenType = @import("scanner.zig").TokenType;
+const number_val = @import("value.zig").number_val;
+const nil_val = @import("value.zig").nil_val;
+const bool_val = @import("value.zig").bool_val;
 
 const Prececdence = enum {
     prec_none,
@@ -26,23 +29,15 @@ const Prececdence = enum {
         return @enumFromInt(@intFromEnum(prec) + 1);
     }
 };
-fn getPrecedence(token_type: TokenType) Prececdence {
-    return switch (token_type) {
-        .tok_equal => .prec_assignment,
-        .tok_minus, .tok_plus => .prec_term,
-        .tok_slash, .tok_star => .prec_factor,
-        else => .prec_none,
-    };
-}
-const ParseFn = *const fn ( *Parser) void;
+const ParseFn = *const fn (*Compiler) void;
 
-pub const Parser = struct {
+pub const Compiler = struct {
     current: Token,
     previous: Token,
     scanner: *Scanner,
     compilingChunk: *Chunk,
 
-    pub fn init(scanner: *Scanner, chunk: *Chunk) Parser {
+    pub fn init(scanner: *Scanner, chunk: *Chunk) Compiler {
         return .{
             .current = undefined,
             .previous = undefined,
@@ -50,50 +45,66 @@ pub const Parser = struct {
             .compilingChunk = chunk,
         };
     }
-    pub fn advance(parser: *Parser) void {
+    pub fn advance(parser: *Compiler) void {
         parser.previous = parser.current;
         parser.current = parser.scanner.scanToken();
     }
-    pub fn consume(parser: *Parser, type_: TokenType, message: []const u8) void {
+    pub fn consume(parser: *Compiler, type_: TokenType, message: []const u8) void {
         if (parser.current.type == type_) {
             parser.advance();
             return;
         }
         std.debug.panic("{s}\n", .{message});
     }
-    fn emitByte(parser: *Parser, byte: u8) void {
+    fn emitByte(parser: *Compiler, byte: u8) void {
         parser.currentChunk().write(byte, parser.previous.line);
     }
-    fn emitBytes(parser: *Parser, op: OpCode, byte: u8) void {
+    fn emitBytes(parser: *Compiler, op: OpCode, byte: u8) void {
         // parser.chunk.write(byte, parser.previous.line);
         parser.emitOp(op);
         parser.emitByte(byte);
     }
-    fn emitOp(parser: *Parser, op: OpCode) void {
+    fn emitOp(parser: *Compiler, op: OpCode) void {
         parser.currentChunk().writeOp(op, parser.previous.line);
     }
-    pub fn endCompiler(parser: *Parser) void {
+    fn emitOps(parser: *Compiler, op1: OpCode, op2: OpCode) void {
+        // parser.chunk.write(byte, parser.previous.line);
+        parser.emitOp(op1);
+        parser.emitOp(op2);
+    }
+    pub fn endCompiler(parser: *Compiler) void {
         parser.emitOp(.op_return);
     }
 
-    pub fn parseExpression(parser: *Parser) void {
+    pub fn parseExpression(parser: *Compiler) void {
         parser.parsePrecedence(.prec_assignment);
     }
     fn getPrefixFn(token_type: TokenType) ParseFn {
         return switch (token_type) {
-            .tok_minus => parseUnary,
+            .tok_minus, .tok_bang => parseUnary,
             .tok_number => parseNumber,
+            .kw_false, .kw_true, .kw_nil => parseLiteral,
             .tok_left_paren => parseGroup,
-            else => undefined,
+            else => unreachable,
         };
     }
     fn getInfixFn(token_type: TokenType) ParseFn {
         return switch (token_type) {
-            .tok_plus, .tok_minus, .tok_slash, .tok_star =>  parseBinary,
+            .tok_plus, .tok_minus, .tok_slash, .tok_star => parseBinary,
+            .tok_bang_equal, .tok_equal_equal, .tok_greater, .tok_greater_equal, .tok_less, .tok_less_equal => parseBinary,
             else => undefined,
         };
     }
-    fn parsePrecedence(parser: *Parser, prec: Prececdence) void {
+    fn getPrecedence(token_type: TokenType) Prececdence {
+        return switch (token_type) {
+            .tok_equal => .prec_assignment,
+            .tok_minus, .tok_plus => .prec_term,
+            .tok_slash, .tok_star => .prec_factor,
+            .tok_bang_equal, .tok_equal_equal, .tok_greater, .tok_greater_equal, .tok_less, .tok_less_equal => .prec_comparison,
+            else => .prec_none,
+        };
+    }
+    fn parsePrecedence(parser: *Compiler, prec: Prececdence) void {
         _ = parser.advance();
         const prefixFn = getPrefixFn(parser.previous.type);
         prefixFn(parser);
@@ -103,22 +114,43 @@ pub const Parser = struct {
             infixFn(parser);
         }
     }
-    fn parseNumber(parser: *Parser) void {
-        const number: Value = std.fmt.parseFloat(f64, parser.tokenString(parser.previous)) catch unreachable;
-        parser.emitConst(number);
+    fn parseNumber(parser: *Compiler) void {
+        const number = std.fmt.parseFloat(f64, parser.tokenString(parser.previous)) catch unreachable;
+        parser.emitConst(number_val(number));
     }
-    fn parseGroup(parser: *Parser) void {
+    fn parseGroup(parser: *Compiler) void {
         parser.parseExpression();
         parser.consume(.tok_right_paren, "Expect ')' after expression.");
     }
-    fn parseUnary(parser: *Parser) void {
-        parser.parsePrecedence(.prec_unary);
+    fn parseUnary(parser: *Compiler) void {
+        const opeartorType = parser.previous.type;
+        parser.parseExpression();
+        switch (opeartorType) {
+            .tok_minus => parser.emitOp(.op_negate),
+            .tok_bang => parser.emitOp(.op_not),
+            else => unreachable,
+        }
     }
-    fn parseBinary(parser: *Parser) void {
+    fn parseLiteral(parser: *Compiler) void {
+        const op: OpCode = switch (parser.previous.type) {
+            .kw_false => .op_false,
+            .kw_nil => .op_nil,
+            .kw_true => .op_true,
+            else => unreachable,
+        };
+        parser.emitOp(op);
+    }
+    fn parseBinary(parser: *Compiler) void {
         const operatorType = parser.previous.type;
         const prec = getPrecedence(operatorType);
         parser.parsePrecedence(prec.inc());
         switch (operatorType) {
+            .tok_bang_equal => parser.emitOps(.op_equal,.op_not),
+            .tok_equal_equal => parser.emitOp(.op_equal),
+            .tok_greater => parser.emitOp(.op_greater),
+            .tok_greater_equal => parser.emitOps(.op_less,.op_not),
+            .tok_less => parser.emitOp(.op_less),
+            .tok_less_equal => parser.emitOps(.op_greater,.op_not),
             .tok_plus => parser.emitOp(.op_add),
             .tok_minus => parser.emitOp(.op_substract),
             .tok_star => parser.emitOp(.op_multiply),
@@ -126,27 +158,27 @@ pub const Parser = struct {
             else => unreachable,
         }
     }
-    fn emitConst(parser: *Parser, value: Value) void {
+    fn emitConst(parser: *Compiler, value: Value) void {
         parser.emitBytes(.op_constant, parser.makeConst(value));
     }
-    fn makeConst(parser: *Parser, value: Value) u8 {
+    fn makeConst(parser: *Compiler, value: Value) u8 {
         const constant = parser.currentChunk().addConstant(value);
         if (constant > std.math.maxInt(u8)) {
             std.debug.panic("Too many constants in on chunk", .{});
         }
         return @intCast(constant);
     }
-    fn tokenString(parser: *const Parser, tok: Token) []const u8 {
+    fn tokenString(parser: *const Compiler, tok: Token) []const u8 {
         return parser.scanner.source[tok.start .. tok.start + tok.length];
     }
-    fn currentChunk(parser: *const Parser) *Chunk {
+    fn currentChunk(parser: *const Compiler) *Chunk {
         return parser.compilingChunk;
     }
 };
 
 pub fn compile(source: []const u8, chunk: *Chunk) void {
     var scanner = Scanner.init(source);
-    var parser = Parser.init(&scanner, chunk);
+    var parser = Compiler.init(&scanner, chunk);
     parser.advance();
     // parser.advance();
     // std.debug.print("{any}\n", .{parser.current.type});

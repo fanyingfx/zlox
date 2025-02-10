@@ -2,6 +2,15 @@ const std = @import("std");
 const config = @import("config");
 const debug = @import("debug.zig");
 const compiler = @import("compiler.zig");
+const as_bool = @import("value.zig").as_bool;
+const as_number = @import("value.zig").as_number;
+const number_val = @import("value.zig").number_val;
+const nil_val = @import("value.zig").nil_val;
+const bool_val = @import("value.zig").bool_val;
+const isFalsey = @import("value.zig").isFalsey;
+const ValueType = @import("value.zig").ValueType;
+const valuesEqual = @import("value.zig").valuesEqual;
+
 const InterpretResult = error{
     CompileError,
     RuntimeError,
@@ -38,6 +47,9 @@ pub const VM = struct {
         vm.stackTop -= 1;
         return vm.stack[vm.stackTop];
     }
+    pub fn peek(vm: *const VM, distance: usize) Value {
+        return vm.stack[vm.stackTop - 1 - distance];
+    }
     pub fn resetStack(vm: *VM) void {
         vm.stackTop = 0;
     }
@@ -61,14 +73,25 @@ pub const VM = struct {
         const idx: usize = @intCast(vm.read_byte());
         return vm.chunk.constants.items[idx];
     }
-    inline fn binary_op(vm: *VM, op: OpCode, a: Value, b: Value) void {
-        switch (op) {
-            .op_add => vm.push(a + b),
-            .op_multiply => vm.push(a * b),
-            .op_substract => vm.push(a - b),
-            .op_divide => vm.push(a / b),
-            else => std.debug.panic("unknow binary operator", .{}),
-        }
+    inline fn binary_op(vm: *VM, comptime typ: type, valueType: fn (typ) Value, op: OpCode) void {
+        const b = vm.pop().as_number();
+        const a = vm.pop().as_number();
+        const val = switch (typ) {
+            f64 => switch (op) {
+                .op_add => a + b,
+                .op_multiply => a * b,
+                .op_substract => a - b,
+                .op_divide => a / b,
+                else => std.debug.panic("unknow binary operator", .{}),
+            },
+            bool => switch (op) {
+                .op_greater => a > b,
+                .op_less => a < b,
+                else => unreachable,
+            },
+            else => unreachable
+        };
+        vm.push(valueType(val));
     }
     fn run(vm: *VM) !void {
         while (true) {
@@ -83,20 +106,35 @@ pub const VM = struct {
                 std.debug.print("\n", .{});
                 _ = debug.disassembleInstruction(vm.chunk, vm.ip);
             }
-            const instruction =OpCode.fromU8(vm.read_byte());
+            const instruction = OpCode.fromU8(vm.read_byte());
             switch (instruction) {
                 .op_constant => {
                     const constant = vm.read_constant();
                     vm.push(constant);
                 },
-                .op_add, .op_substract, .op_multiply, .op_divide => {
-                    const op = instruction;
+                .op_nil => vm.push(nil_val()),
+                .op_true => vm.push(bool_val(true)),
+                .op_false => vm.push(bool_val(false)),
+                .op_equal => {
                     const b = vm.pop();
                     const a = vm.pop();
-                    vm.binary_op(op, a, b);
+                    vm.push(bool_val(valuesEqual(a, b)));
+                },
+                .op_not => vm.push(bool_val(isFalsey(vm.pop()))),
+                .op_add, .op_substract, .op_multiply, .op_divide => {
+                    const op = instruction;
+                    vm.binary_op(f64, number_val, op);
+                },
+                .op_less, .op_greater => {
+                    const op = instruction;
+                    vm.binary_op(bool, bool_val, op);
                 },
                 .op_negate => {
-                    vm.push(-vm.pop());
+                    if (!vm.peek(0).is_number()) {
+                        std.debug.print("Operand must b a number.\n", .{});
+                        return error.RuntimeError;
+                    }
+                    vm.push(number_val(-vm.pop().as_number()));
                 },
                 .op_return => {
                     value.printValueLn(vm.pop());

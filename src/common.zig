@@ -4,7 +4,14 @@ const value = @import("value.zig");
 pub const OpCode = enum(u8) {
     op_return,
     op_constant,
+    op_nil,
+    op_true,
+    op_false,
+    op_equal,
+    op_greater,
+    op_less,
     op_negate,
+    op_not,
     op_add,
     op_substract,
     op_multiply,
@@ -35,16 +42,16 @@ pub const Chunk = struct {
             // .allocator = allocator,
         };
     }
-    pub fn write(self: *Chunk, byte: u8,line:usize) void {
+    pub fn write(self: *Chunk, byte: u8, line: usize) void {
         self.code.append(byte) catch unreachable;
         self.lines.append(line) catch unreachable;
     }
-    pub fn writeOp(self: *Chunk, opCode: OpCode,line:usize) void {
+    pub fn writeOp(self: *Chunk, opCode: OpCode, line: usize) void {
         self.code.append(@intFromEnum(opCode)) catch unreachable;
         self.lines.append(line) catch unreachable;
     }
     pub fn addConstant(self: *Chunk, value_: value.Value) usize {
-        self.constants.append(value_) catch unreachable ;
+        self.constants.append(value_) catch unreachable;
         return self.constants.items.len - 1;
     }
     pub fn deinit(self: *Chunk) void {
@@ -53,4 +60,9 @@ pub const Chunk = struct {
         self.lines.deinit();
         // self.code = CodeList.init(self.allocator);
     }
+};
+pub const ValueType = enum {
+    val_bool,
+    val_nil,
+    val_number,
 };
