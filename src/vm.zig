@@ -16,6 +16,7 @@ const Obj = @import("object.zig").Obj;
 const InterpretResult = error{
     CompileError,
     RuntimeError,
+    Quit,
 };
 
 const Chunk = @import("common.zig").Chunk;
@@ -67,7 +68,6 @@ pub const VM = struct {
             .obj_string=>{
                 const objString = obj.toObjString();
                 objString.deinit(vm.heap_allocator);
-                // vm.heap_allocator.destroy(objString);
             }
         }
     }
@@ -196,6 +196,10 @@ pub const VM = struct {
                     value.printValueLn(vm.pop());
                     return;
                 },
+                .op_quit=>{
+                    std.debug.print("Bye~\n",.{});
+                    return error.Quit;
+                }
             }
         }
     }

@@ -32,6 +32,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
         .op_equal,
         .op_greater,
         .op_less,
+        .op_quit,
         => {
             return simpleInstruction(instruction.name(), offset);
         },

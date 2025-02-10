@@ -17,6 +17,7 @@ pub const OpCode = enum(u8) {
     op_substract,
     op_multiply,
     op_divide,
+    op_quit,
     pub fn fromU8(byte: u8) OpCode {
         return @enumFromInt(byte);
     }

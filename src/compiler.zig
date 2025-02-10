@@ -87,7 +87,7 @@ pub const Compiler = struct {
         return switch (token_type) {
             .tok_minus, .tok_bang => parseUnary,
             .tok_number => parseNumber,
-            .kw_false, .kw_true, .kw_nil,=> parseLiteral,
+            .kw_false, .kw_true, .kw_nil,.kw_quit=> parseLiteral,
             .tok_string => parseString,
             .tok_left_paren => parseGroup,
             else => unreachable,
@@ -162,6 +162,7 @@ pub const Compiler = struct {
             .kw_false => .op_false,
             .kw_nil => .op_nil,
             .kw_true => .op_true,
+            .kw_quit => .op_quit,
             else => unreachable,
         };
         parser.emitOp(op);

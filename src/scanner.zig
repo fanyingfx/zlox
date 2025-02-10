@@ -16,6 +16,8 @@ const keywords = std.StaticStringMap(TokenType).initComptime(.{
     .{ "true", .kw_true },
     .{ "var", .kw_var },
     .{ "while", .kw_while },
+    .{ "quit", .kw_quit },
+    .{ "exit", .kw_quit },
 });
 pub const Scanner = struct {
     source: []const u8,
@@ -194,6 +196,7 @@ pub const TokenType = enum {
     kw_true,
     kw_var,
     kw_while,
+    kw_quit,
 
     tok_error,
     tok_eof,

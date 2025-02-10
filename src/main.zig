@@ -29,7 +29,11 @@ fn repl(vm: *VM) !void {
     while (true) {
         std.debug.print("> ", .{});
         const len = try std.io.getStdIn().read(&line);
-        try vm.interpret(line[0..len]);
+        vm.interpret(line[0..len]) catch |err|{
+            if (err == error.Quit){
+                break;
+            }
+        };
     }
 }
 fn runFile(vm:*VM,path:[]const u8)!void{
