@@ -10,6 +10,8 @@ const bool_val = @import("value.zig").bool_val;
 const isFalsey = @import("value.zig").isFalsey;
 const ValueType = @import("value.zig").ValueType;
 const valuesEqual = @import("value.zig").valuesEqual;
+const ObjString = @import("object.zig").ObjString;
+const Obj = @import("object.zig").Obj;
 
 const InterpretResult = error{
     CompileError,
@@ -25,19 +27,57 @@ pub const VM = struct {
     chunk: *Chunk,
     ip: usize, // TODO change it to pointer later?
     stack: [STACK_MAX]Value,
+    heap_allocator: std.mem.Allocator,
     stackTop: usize,
+    objects: ?*Obj,
 
-    pub fn init(chunk: *Chunk) VM {
+    pub fn init(allocator: std.mem.Allocator, chunk: *Chunk) VM {
         return .{
             .chunk = chunk,
             .ip = 0,
             .stack = undefined,
             .stackTop = 0,
+            .heap_allocator = allocator,
+            .objects = null,
         };
+
         // vm.resetStack();
     }
     pub fn deinit(self: *VM) void {
         _ = self;
+    }
+    pub fn allocateObject(vm: *VM, comptime T: type) *Obj {
+        const objectRaw = vm.heap_allocator.create(T) catch unreachable;
+        const obj: *Obj = objectRaw.obj_ptr();
+        obj.type = switch (T) {
+            ObjString => .obj_string,
+            else => unreachable,
+        };
+        obj.next = vm.objects;
+        vm.objects = obj;
+        return obj;
+    }
+    pub fn allocateObjString(vm: *VM, str: []u8) *ObjString {
+        const objString = vm.allocateObject(ObjString).toObjString();
+        objString.chars = vm.heap_allocator.dupe(u8,str) catch unreachable;
+        return objString;
+    }
+    pub fn freeObject(vm:*VM,obj:Obj)void{
+        switch(obj.type){
+            .obj_string=>{
+                const objString = obj.toObjString();
+                objString.deinit(vm.heap_allocator);
+                // vm.heap_allocator.destroy(objString);
+            }
+        }
+    }
+    pub fn freeObjects(vm:*VM)void{
+        var obj_opt =vm.objects;
+        while(obj_opt)|obj|{
+            const next = obj.next;
+            vm.freeObject(obj);
+            obj_opt=next;
+        }
     }
     pub fn push(vm: *VM, value_: Value) void {
         vm.stack[vm.stackTop] = value_;
@@ -54,13 +94,9 @@ pub const VM = struct {
         vm.stackTop = 0;
     }
     pub fn interpret(vm: *VM, source: []const u8) !void {
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        const arena_alloc = arena.allocator();
-
-        var chunk = Chunk.init(arena_alloc);
+        var chunk = Chunk.init(vm.heap_allocator);
         defer chunk.deinit();
-        compiler.compile(source, &chunk);
+        compiler.compile(vm.heap_allocator, source, &chunk);
         vm.chunk = &chunk;
         vm.ip = 0;
         return vm.run();
@@ -73,7 +109,11 @@ pub const VM = struct {
         const idx: usize = @intCast(vm.read_byte());
         return vm.chunk.constants.items[idx];
     }
-    inline fn binary_op(vm: *VM, comptime typ: type, valueType: fn (typ) Value, op: OpCode) void {
+    inline fn binary_op(vm: *VM, comptime typ: type, valueType: fn (typ) Value, op: OpCode) !void {
+        if (!vm.peek(0).is_number() or !vm.peek(1).is_number()) {
+            std.debug.print("Operands must be numbers.\n", .{});
+            return error.RuntimeError;
+        }
         const b = vm.pop().as_number();
         const a = vm.pop().as_number();
         const val = switch (typ) {
@@ -87,15 +127,15 @@ pub const VM = struct {
             bool => switch (op) {
                 .op_greater => a > b,
                 .op_less => a < b,
-                else => unreachable,
+                else => std.debug.panic("unknow binary operator", .{}),
             },
-            else => unreachable
+            else => unreachable,
         };
         vm.push(valueType(val));
     }
     fn run(vm: *VM) !void {
         while (true) {
-            if (comptime config.enable_debug) {
+            if (comptime config.print_stack) {
                 std.debug.print("          ", .{});
                 var slot: usize = 0;
                 while (slot < vm.stackTop) : (slot += 1) {
@@ -104,7 +144,10 @@ pub const VM = struct {
                     std.debug.print(" ]", .{});
                 }
                 std.debug.print("\n", .{});
-                _ = debug.disassembleInstruction(vm.chunk, vm.ip);
+            }
+            if(comptime config.enable_debug){
+            _ = debug.disassembleInstruction(vm.chunk, vm.ip);
+
             }
             const instruction = OpCode.fromU8(vm.read_byte());
             switch (instruction) {
@@ -123,11 +166,24 @@ pub const VM = struct {
                 .op_not => vm.push(bool_val(isFalsey(vm.pop()))),
                 .op_add, .op_substract, .op_multiply, .op_divide => {
                     const op = instruction;
-                    vm.binary_op(f64, number_val, op);
+                    try vm.binary_op(f64, number_val, op);
+                },
+                .op_concat => {
+                    if (!vm.peek(0).is_string() or !vm.peek(1).is_string()) {
+                        std.debug.print("Operands must be two strings.", .{});
+                        return error.RuntimeError;
+                    }
+                    var buf:[1024]u8=undefined;
+                    const b = vm.pop().as_string();
+                    const a = vm.pop().as_string();
+                    const new_str= std.fmt.bufPrint(&buf,"{s}{s}",.{a,b}) catch unreachable;
+                    // const new_str = std.fmt.allocPrint(vm.heap_allocator, "{s}{s}", .{ a, b }) catch unreachable;
+                    const result = vm.allocateObjString(new_str);
+                    vm.push(result.obj_val());
                 },
                 .op_less, .op_greater => {
                     const op = instruction;
-                    vm.binary_op(bool, bool_val, op);
+                    try vm.binary_op(bool, bool_val, op);
                 },
                 .op_negate => {
                     if (!vm.peek(0).is_number()) {

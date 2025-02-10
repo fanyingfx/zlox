@@ -55,7 +55,7 @@ pub const Scanner = struct {
             ',' => return self.makeToken(.tok_comma),
             '.' => return self.makeToken(.tok_dot),
             '-' => return self.makeToken(.tok_minus),
-            '+' => return self.makeToken(.tok_plus),
+            '+' => return self.makeToken(if (self.match('+')) .tok_concat else .tok_plus),
             '/' => return self.makeToken(.tok_slash),
             '*' => return self.makeToken(.tok_star),
             '!' => return self.makeToken(if (self.match('=')) .tok_bang_equal else .tok_bang),
@@ -163,6 +163,7 @@ pub const TokenType = enum {
     tok_semicolon,
     tok_slash,
     tok_star,
+    tok_concat,
     // One or two character tokens.
     tok_bang,
     tok_bang_equal,

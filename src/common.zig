@@ -13,6 +13,7 @@ pub const OpCode = enum(u8) {
     op_negate,
     op_not,
     op_add,
+    op_concat,
     op_substract,
     op_multiply,
     op_divide,
@@ -60,9 +61,4 @@ pub const Chunk = struct {
         self.lines.deinit();
         // self.code = CodeList.init(self.allocator);
     }
-};
-pub const ValueType = enum {
-    val_bool,
-    val_nil,
-    val_number,
 };

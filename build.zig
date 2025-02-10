@@ -10,7 +10,9 @@ pub fn build(b: *std.Build) void {
     // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
     const options=  b.addOptions();
-    const enable_debug = b.option(bool,"debug","Enable debug") orelse false;
+    const print_stack= b.option(bool,"stack","Show stack") orelse false;
+    const enable_debug= b.option(bool,"debug","Enable debug") orelse false;
+    options.addOption(bool, "print_stack",print_stack);
     options.addOption(bool, "enable_debug",enable_debug);
 
 

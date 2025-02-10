@@ -1,13 +1,26 @@
 const std = @import("std");
-const ValueType = @import("common.zig").ValueType;
+const Obj = @import("object.zig").Obj;
+const ObjString = @import("object.zig").ObjString;
+const printObj = @import("object.zig").printObject;
+
+pub const ValueType = enum {
+    val_bool,
+    val_nil,
+    val_number,
+    val_obj,
+};
 
 pub const Value = struct {
     type: ValueType,
-    as: union { boolean: bool, number: f64 },
-    pub inline fn as_bool(value: Value) bool {
+    as: union {
+        boolean: bool,
+        number: f64,
+        obj: *Obj,
+    },
+    pub fn as_bool(value: Value) bool {
         return value.as.boolean;
     }
-    pub inline fn as_number(value: Value) f64 {
+    pub fn as_number(value: Value) f64 {
         return value.as.number;
     }
     pub fn is_bool(value: Value) bool {
@@ -19,21 +32,43 @@ pub const Value = struct {
     pub fn is_number(value: Value) bool {
         return value.type == .val_number;
     }
+    pub fn is_string(value:Value)bool{
+        return value.as_obj().@"type" == .obj_string;
+    }
+    pub fn as_obj(value: Value) *Obj {
+        return value.as.obj;
+    }
+    pub fn is_obj(value: Value) bool {
+        return value.type == .val_obj;
+    }
+    pub fn as_objString(value: Value) *ObjString {
+        const objStr: *ObjString = @alignCast(@fieldParentPtr("obj", value.as_obj()));
+        return objStr;
+    }
+    pub fn as_string(value: Value) []u8 {
+        return as_objString(value).chars;
+    }
 };
 pub const ValueArray = std.ArrayList(Value);
-pub fn valuesEqual(a:Value,b:Value)bool{
-    if (a.type != b.type)return false;
-    switch(a.type){
+pub fn valuesEqual(a: Value, b: Value) bool {
+    if (a.type != b.type) return false;
+    switch (a.type) {
         .val_bool => return a.as_bool() == b.as_bool(),
         .val_nil => return true,
         .val_number => return a.as_number() == b.as_number(),
+        .val_obj => {
+            const aString = a.as_string();
+            const bString = b.as_string();
+            return std.mem.eql(u8,aString,bString);
+        }, 
     }
 }
 pub fn printValue(v: Value) void {
-    switch(v.type){
+    switch (v.type) {
         .val_number => std.debug.print("{d}", .{v.as_number()}),
-        .val_bool => std.debug.print("{}",.{v.as_bool()}),
-        .val_nil => std.debug.print("nil",.{})
+        .val_bool => std.debug.print("{}", .{v.as_bool()}),
+        .val_nil => std.debug.print("nil", .{}),
+        .val_obj => printObj(v),
     }
 }
 pub fn printValueLn(v: Value) void {
@@ -49,7 +84,9 @@ pub fn nil_val() Value {
 pub fn number_val(value: f64) Value {
     return .{ .type = .val_number, .as = .{ .number = value } };
 }
-pub fn isFalsey(value:Value)bool{
+pub fn obj_val(obj: Obj) Value {
+    return .{ .type = .val_obj, .as = .{ .obj = obj } };
+}
+pub fn isFalsey(value: Value) bool {
     return value.is_nil() or (value.is_bool() and !value.as_bool());
-
 }

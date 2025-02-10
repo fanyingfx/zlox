@@ -11,9 +11,10 @@ pub fn main() !void {
 
     var chunk = Chunk.init(allocator);
     defer chunk.deinit();
-    var vm = VM.init(&chunk);
+    var vm = VM.init(allocator,&chunk);
     defer vm.deinit();
     const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator,args);
     if (args.len == 1) {
         try repl(&vm);
     } else if (args.len == 2) {
@@ -34,6 +35,7 @@ fn repl(vm: *VM) !void {
 fn runFile(vm:*VM,path:[]const u8)!void{
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
+    // errdefer arena.deinit();
     const arena_alloc = arena.allocator();
 
     const source = try std.fs.cwd().readFileAlloc(arena_alloc,path,4096);
