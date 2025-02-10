@@ -142,7 +142,7 @@ pub const Compiler = struct {
     fn parseString(parser: *Compiler) void {
         const prev_tok = parser.previous;
         const str = parser.scanner.source[prev_tok.start + 1 .. prev_tok.start + prev_tok.length - 1];
-        const objString = parser.collector.allocateObjString(str);
+        const objString = parser.collector.copyString(str);
         // const objString = parser.allocator.create(ObjString) catch unreachable;
         // objString.obj=.{ .@"type" =.obj_string,.next=null};
         // objString.chars = parser.allocator.dupe(u8,str) catch unreachable;

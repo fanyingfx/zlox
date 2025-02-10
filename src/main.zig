@@ -4,6 +4,7 @@ const Chunk = @import("common.zig").Chunk;
 const debug = @import("debug.zig");
 const VM = @import("vm.zig").VM;
 const Collector = @import("collector.zig");
+const Table = @import("table.zig");
 const config = @import("config");
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,7 +13,9 @@ pub fn main() !void {
 
     var chunk = Chunk.init(allocator);
     defer chunk.deinit();
-    var collector = Collector.init(allocator);
+    var table = Table.init(allocator);
+    defer table.deinit();
+    var collector = Collector.init(allocator,&table);
     var vm = VM.init(&collector,&chunk);
     defer vm.deinit();
     const args = try std.process.argsAlloc(allocator);

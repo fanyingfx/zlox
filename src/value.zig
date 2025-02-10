@@ -32,8 +32,8 @@ pub const Value = struct {
     pub fn is_number(value: Value) bool {
         return value.type == .val_number;
     }
-    pub fn is_string(value:Value)bool{
-        return value.as_obj().@"type" == .obj_string;
+    pub fn is_string(value: Value) bool {
+        return value.as_obj().type == .obj_string;
     }
     pub fn as_obj(value: Value) *Obj {
         return value.as.obj;
@@ -52,16 +52,16 @@ pub const Value = struct {
 pub const ValueArray = std.ArrayList(Value);
 pub fn valuesEqual(a: Value, b: Value) bool {
     if (a.type != b.type) return false;
-    switch (a.type) {
-        .val_bool => return a.as_bool() == b.as_bool(),
-        .val_nil => return true,
-        .val_number => return a.as_number() == b.as_number(),
-        .val_obj => {
-            const aString = a.as_string();
-            const bString = b.as_string();
-            return std.mem.eql(u8,aString,bString);
-        }, 
-    }
+    return switch (a.type) {
+        .val_bool => a.as_bool() == b.as_bool(),
+        .val_nil => true,
+        .val_number => a.as_number() == b.as_number(),
+        .val_obj => a.as_obj() == b.as_obj(),
+
+        // const aString = a.as_string();
+        // const bString = b.as_string();
+        // return std.mem.eql(u8,aString,bString);
+    };
 }
 pub fn printValue(v: Value) void {
     switch (v.type) {

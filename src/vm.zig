@@ -13,6 +13,7 @@ const valuesEqual = @import("value.zig").valuesEqual;
 const ObjString = @import("object.zig").ObjString;
 const Obj = @import("object.zig").Obj;
 const Collector = @import("collector.zig");
+const Table = @import("table.zig");
 
 const InterpretResult = error{
     CompileError,
@@ -29,10 +30,10 @@ pub const VM = struct {
     chunk: *Chunk,
     ip: usize, // TODO change it to pointer later?
     stack: [STACK_MAX]Value,
-    // heap_allocator: std.mem.Allocator,
     collector:*Collector,
     stackTop: usize,
-    // objects: ?*Obj,
+    // table:Table,
+
 
     pub fn init(collector:*Collector,chunk: *Chunk) VM {
         return .{
@@ -41,47 +42,12 @@ pub const VM = struct {
             .stack = undefined,
             .stackTop = 0,
             .collector=collector,
-            // .heap_allocator = allocator,
-            // .objects = null,
         };
 
-        // vm.resetStack();
     }
-    pub fn deinit(self: *VM) void {
-        _ = self;
+    pub fn deinit(vm: *VM) void {
+        vm.collector.freeObjects();
     }
-    // pub fn allocateObject(vm: *VM, comptime T: type) *Obj {
-    //     const objectRaw = vm.heap_allocator.create(T) catch unreachable;
-    //     const obj: *Obj = objectRaw.obj_ptr();
-    //     obj.type = switch (T) {
-    //         ObjString => .obj_string,
-    //         else => unreachable,
-    //     };
-    //     obj.next = vm.objects;
-    //     vm.objects = obj;
-    //     return obj;
-    // }
-    // pub fn allocateObjString(vm: *VM, str: []const u8) *ObjString {
-    //     const objString = vm.allocateObject(ObjString).toObjString();
-    //     objString.chars = vm.heap_allocator.dupe(u8,str) catch unreachable;
-    //     return objString;
-    // }
-    // pub fn freeObject(vm:*VM,obj:*Obj)void{
-    //     switch(obj.type){
-    //         .obj_string=>{
-    //             const objString = obj.toObjString();
-    //             objString.deinit(vm.heap_allocator);
-    //         }
-    //     }
-    // }
-    // pub fn freeObjects(vm:*VM)void{
-    //     var obj_opt =vm.objects;
-    //     while(obj_opt)|obj|{
-    //         const next = obj.next;
-    //         vm.freeObject(obj);
-    //         obj_opt=next;
-    //     }
-    // }
     pub fn push(vm: *VM, value_: Value) void {
         vm.stack[vm.stackTop] = value_;
         vm.stackTop += 1;
@@ -180,8 +146,7 @@ pub const VM = struct {
                     const b = vm.pop().as_string();
                     const a = vm.pop().as_string();
                     const new_str= std.fmt.bufPrint(&buf,"{s}{s}",.{a,b}) catch unreachable;
-                    // const new_str = std.fmt.allocPrint(vm.heap_allocator, "{s}{s}", .{ a, b }) catch unreachable;
-                    const result = vm.collector.allocateObjString(new_str);
+                    const result = vm.collector.copyString(new_str);
                     vm.push(result.obj_val());
                 },
                 .op_less, .op_greater => {
@@ -201,7 +166,6 @@ pub const VM = struct {
                 },
                 .op_quit=>{
                     std.debug.print("Bye~\n",.{});
-                    vm.collector.freeObjects();
                     return error.Quit;
                 }
             }
