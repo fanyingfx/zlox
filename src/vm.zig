@@ -14,6 +14,7 @@ const ObjString = @import("object.zig").ObjString;
 const Obj = @import("object.zig").Obj;
 const Collector = @import("collector.zig");
 const Table = @import("table.zig");
+const Compiler = @import("compiler.zig").Compiler;
 
 const InterpretResult = error{
     CompileError,
@@ -30,20 +31,19 @@ pub const VM = struct {
     chunk: *Chunk,
     ip: usize, // TODO change it to pointer later?
     stack: [STACK_MAX]Value,
-    collector:*Collector,
+    collector: *Collector,
     stackTop: usize,
-    globals:Table,
+    globals: Table,
 
-    pub fn init(collector:*Collector,chunk: *Chunk) VM {
+    pub fn init(collector: *Collector, chunk: *Chunk) VM {
         return .{
             .chunk = chunk,
             .ip = 0,
             .stack = undefined,
             .stackTop = 0,
-            .collector=collector,
+            .collector = collector,
             .globals = Table.init(collector.allocator),
         };
-
     }
     pub fn deinit(vm: *VM) void {
         vm.collector.freeObjects();
@@ -66,7 +66,8 @@ pub const VM = struct {
     pub fn interpret(vm: *VM, source: []const u8) !void {
         var chunk = Chunk.init(vm.collector.allocator);
         defer chunk.deinit();
-        compiler.compile(vm.collector, source, &chunk);
+        var compiler_ = Compiler.init();
+        compiler.compile(vm.collector, &compiler_, source, &chunk);
         vm.chunk = &chunk;
         vm.ip = 0;
         return vm.run();
@@ -79,7 +80,7 @@ pub const VM = struct {
         const idx: usize = @intCast(vm.read_byte());
         return vm.chunk.constants.items[idx];
     }
-    fn read_string(vm:*VM)*ObjString{
+    fn read_string(vm: *VM) *ObjString {
         return vm.read_constant().as_objString();
     }
     inline fn binary_op(vm: *VM, comptime typ: type, valueType: fn (typ) Value, op: OpCode) !void {
@@ -118,9 +119,8 @@ pub const VM = struct {
                 }
                 std.debug.print("\n", .{});
             }
-            if(comptime config.enable_debug){
-            _ = debug.disassembleInstruction(vm.chunk, vm.ip);
-
+            if (comptime config.enable_debug) {
+                _ = debug.disassembleInstruction(vm.chunk, vm.ip);
             }
             const instruction = OpCode.fromU8(vm.read_byte());
             switch (instruction) {
@@ -146,10 +146,10 @@ pub const VM = struct {
                         std.debug.print("Operands must be two strings.", .{});
                         return error.RuntimeError;
                     }
-                    var buf:[1024]u8=undefined;
+                    var buf: [1024]u8 = undefined;
                     const b = vm.pop().as_string();
                     const a = vm.pop().as_string();
-                    const new_str= std.fmt.bufPrint(&buf,"{s}{s}",.{a,b}) catch unreachable;
+                    const new_str = std.fmt.bufPrint(&buf, "{s}{s}", .{ a, b }) catch unreachable;
                     const result = vm.collector.copyString(new_str);
                     vm.push(result.obj_val());
                 },
@@ -164,43 +164,51 @@ pub const VM = struct {
                     }
                     vm.push(number_val(-vm.pop().as_number()));
                 },
-                .op_print =>{
+                .op_print => {
                     value.printValueLn(vm.pop());
                 },
-                .op_define_global=>{
+                .op_define_global => {
                     const name = vm.read_string();
-                    _=vm.globals.set(name,vm.peek(0));
-                    _=vm.pop();
+                    _ = vm.globals.set(name, vm.peek(0));
+                    _ = vm.pop();
                 },
-                .op_get_global=>{
+                .op_get_global => {
                     const name = vm.read_string();
-                    if(vm.globals.get(name))|v|{
+                    if (vm.globals.get(name)) |v| {
                         vm.push(v);
-                    }else{
-                        std.debug.print("Undefined variable '{s}'.",.{name.chars});
+                    } else {
+                        std.debug.print("Undefined variable '{s}'.", .{name.chars});
                         return error.RuntimeError;
                     }
                 },
-                .op_set_global =>{
+                .op_set_global => {
                     const name = vm.read_string();
-                    if(vm.globals.set(name,vm.peek(0))){
-                        _=vm.globals.delete(name);
-                        std.debug.print("Undefined variable '{s}'.",.{name.chars});
+                    if (vm.globals.set(name, vm.peek(0))) {
+                        _ = vm.globals.delete(name);
+                        std.debug.print("Undefined variable '{s}'.", .{name.chars});
                         return error.RuntimeError;
                     }
-
+                },
+                .op_get_local => {
+                    const slot: usize = @intCast(vm.read_byte());
+                    std.debug.print("slot = {}\n",.{slot});
+                    value.printValueLn(vm.stack[slot]);
+                    vm.push(vm.stack[slot]);
+                },
+                .op_set_local => {
+                    const slot: usize = @intCast(vm.read_byte());
+                    vm.stack[slot] = vm.peek(0);
                 },
                 .op_pop => {
-                    _=vm.pop();
-
+                    _ = vm.pop();
                 },
                 .op_return => {
                     return;
                 },
-                .op_quit=>{
-                    std.debug.print("Bye~\n",.{});
+                .op_quit => {
+                    std.debug.print("Bye~\n", .{});
                     return error.Quit;
-                }
+                },
             }
         }
     }

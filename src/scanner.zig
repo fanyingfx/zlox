@@ -206,4 +206,9 @@ pub const Token = struct {
     start: usize,
     length: usize,
     line: usize,
+    // pub fn eql(self: *const Token, other: *const Token) bool {
+    //     return self.type == other.type and
+    //         self.start == other.start and
+    //         self.length == other.length;
+    // }
 };

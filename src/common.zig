@@ -22,6 +22,8 @@ pub const OpCode = enum(u8) {
     op_define_global,
     op_get_global,
     op_set_global,
+    op_set_local,
+    op_get_local,
     op_quit,
     pub fn fromU8(byte: u8) OpCode {
         return @enumFromInt(byte);
