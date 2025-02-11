@@ -11,12 +11,17 @@ pub const OpCode = enum(u8) {
     op_greater,
     op_less,
     op_negate,
+    op_print,
+    op_pop,
     op_not,
     op_add,
     op_concat,
     op_substract,
     op_multiply,
     op_divide,
+    op_define_global,
+    op_get_global,
+    op_set_global,
     op_quit,
     pub fn fromU8(byte: u8) OpCode {
         return @enumFromInt(byte);

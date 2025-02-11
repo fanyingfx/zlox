@@ -106,8 +106,9 @@ pub fn findString(table: *Table, str: []const u8, hash: u32) ?*ObjString {
         } else if (entry.value.is_nil()) {
             return null;
         }
+
+        index = (index + 1) % table.entries.len;
     }
-    index = (index + 1) % table.entries.len;
 }
 pub fn addAll(from: *Table, to: *Table) void {
     for (from.entries) |*entry| {
@@ -116,32 +117,32 @@ pub fn addAll(from: *Table, to: *Table) void {
         }
     }
 }
-test "basic set/get"{
+test "basic set/get" {
     const allocator = std.testing.allocator;
     const raw1 = "k1";
     const raw2 = "k2";
-    const k1 = ObjString.allocateObjString(allocator,raw1);
+    const k1 = ObjString.allocateObjString(allocator, raw1);
     defer k1.deinit(allocator);
-    const k2 = ObjString.allocateObjString(allocator,raw2);
+    const k2 = ObjString.allocateObjString(allocator, raw2);
     defer k2.deinit(allocator);
     var table = Table.init(allocator);
     defer table.deinit();
-    const v1 = Value{.type=.val_number,.as=.{ .number = 10}};
-    const v2 = Value{.type=.val_bool,.as=.{ .boolean = true}};
-    try std.testing.expect(table.set(k1,v1));
-    try std.testing.expect(table.set(k2,v2));
-    try std.testing.expectEqual(table.get(k1).?.as_number(),10);
+    const v1 = Value{ .type = .val_number, .as = .{ .number = 10 } };
+    const v2 = Value{ .type = .val_bool, .as = .{ .boolean = true } };
+    try std.testing.expect(table.set(k1, v1));
+    try std.testing.expect(table.set(k2, v2));
+    try std.testing.expectEqual(table.get(k1).?.as_number(), 10);
     try std.testing.expect(table.get(k2).?.as_bool());
 }
-test "interned string"{
+test "interned string" {
     const allocator = std.testing.allocator;
     const raw1 = "k1";
     const raw2 = "k1";
-    const obj1 = ObjString.allocateObjString(allocator,raw1);
+    const obj1 = ObjString.allocateObjString(allocator, raw1);
     defer obj1.deinit(allocator);
     var table = Table.init(allocator);
     defer table.deinit();
-    try std.testing.expect(table.set(obj1,nil_val()));
-    const obj2 = table.findString(raw2,hashString(raw2)).?;
+    try std.testing.expect(table.set(obj1, nil_val()));
+    const obj2 = table.findString(raw2, hashString(raw2)).?;
     try std.testing.expect(obj1 == obj2);
 }

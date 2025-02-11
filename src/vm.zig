@@ -32,8 +32,7 @@ pub const VM = struct {
     stack: [STACK_MAX]Value,
     collector:*Collector,
     stackTop: usize,
-    // table:Table,
-
+    globals:Table,
 
     pub fn init(collector:*Collector,chunk: *Chunk) VM {
         return .{
@@ -42,11 +41,13 @@ pub const VM = struct {
             .stack = undefined,
             .stackTop = 0,
             .collector=collector,
+            .globals = Table.init(collector.allocator),
         };
 
     }
     pub fn deinit(vm: *VM) void {
         vm.collector.freeObjects();
+        vm.globals.deinit();
     }
     pub fn push(vm: *VM, value_: Value) void {
         vm.stack[vm.stackTop] = value_;
@@ -77,6 +78,9 @@ pub const VM = struct {
     inline fn read_constant(vm: *VM) value.Value {
         const idx: usize = @intCast(vm.read_byte());
         return vm.chunk.constants.items[idx];
+    }
+    fn read_string(vm:*VM)*ObjString{
+        return vm.read_constant().as_objString();
     }
     inline fn binary_op(vm: *VM, comptime typ: type, valueType: fn (typ) Value, op: OpCode) !void {
         if (!vm.peek(0).is_number() or !vm.peek(1).is_number()) {
@@ -160,8 +164,37 @@ pub const VM = struct {
                     }
                     vm.push(number_val(-vm.pop().as_number()));
                 },
-                .op_return => {
+                .op_print =>{
                     value.printValueLn(vm.pop());
+                },
+                .op_define_global=>{
+                    const name = vm.read_string();
+                    _=vm.globals.set(name,vm.peek(0));
+                    _=vm.pop();
+                },
+                .op_get_global=>{
+                    const name = vm.read_string();
+                    if(vm.globals.get(name))|v|{
+                        vm.push(v);
+                    }else{
+                        std.debug.print("Undefined variable '{s}'.",.{name.chars});
+                        return error.RuntimeError;
+                    }
+                },
+                .op_set_global =>{
+                    const name = vm.read_string();
+                    if(vm.globals.set(name,vm.peek(0))){
+                        _=vm.globals.delete(name);
+                        std.debug.print("Undefined variable '{s}'.",.{name.chars});
+                        return error.RuntimeError;
+                    }
+
+                },
+                .op_pop => {
+                    _=vm.pop();
+
+                },
+                .op_return => {
                     return;
                 },
                 .op_quit=>{

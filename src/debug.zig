@@ -33,10 +33,15 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
         .op_greater,
         .op_less,
         .op_quit,
+        .op_print,
+        .op_pop
         => {
             return simpleInstruction(instruction.name(), offset);
         },
         .op_constant,
+        .op_define_global,
+        .op_get_global,
+        .op_set_global,
         => {
             return constantInstruction(@tagName(instruction), chunk, offset);
         },
