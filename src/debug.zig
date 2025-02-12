@@ -18,24 +18,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
     }
     const instruction = OpCode.fromU8(chunk.code.items[offset]);
     switch (instruction) {
-        .op_return,
-        .op_negate,
-        .op_add,
-        .op_concat,
-        .op_divide,
-        .op_multiply,
-        .op_substract,
-        .op_nil,
-        .op_false,
-        .op_true,
-        .op_not,
-        .op_equal,
-        .op_greater,
-        .op_less,
-        .op_quit,
-        .op_print,
-        .op_pop
-        => {
+        .op_return, .op_negate, .op_add, .op_concat, .op_divide, .op_multiply, .op_substract, .op_nil, .op_false, .op_true, .op_not, .op_equal, .op_greater, .op_less, .op_quit, .op_print, .op_pop => {
             return simpleInstruction(instruction.name(), offset);
         },
         .op_constant,
@@ -47,9 +30,14 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
         },
         .op_get_local,
         .op_set_local,
-        =>{
-            return byteInstruction(@tagName(instruction),chunk,offset);
-        }
+        => {
+            return byteInstruction(@tagName(instruction), chunk, offset);
+        },
+        .op_jump_if_false,
+        .op_jump,
+        => {
+            return jumpInstruction(@tagName(instruction), 1, chunk, offset);
+        },
     }
 }
 fn simpleInstruction(name: []const u8, offset: usize) usize {
@@ -63,8 +51,17 @@ fn constantInstruction(name: []const u8, chunk: *const Chunk, offset: usize) usi
     std.debug.print("'\n", .{});
     return offset + 2;
 }
-fn byteInstruction(name:[]const u8,chunk:*const Chunk,offset:usize)usize{
+fn byteInstruction(name: []const u8, chunk: *const Chunk, offset: usize) usize {
     const slot = chunk.code.items[offset + 1];
-    std.debug.print("{s:<16} {d:4} '", .{ name, slot});
+    std.debug.print("{s:<16} {d:4} '", .{ name, slot });
     return offset + 2;
+}
+fn jumpInstruction(name: []const u8, sign: isize, chunk: *const Chunk, offset: usize) usize {
+    var buf: [2]u8 = undefined;
+    buf[0] = chunk.code.items[offset + 1];
+    buf[1] = chunk.code.items[offset + 2];
+    const jump = std.mem.readInt(u16, &buf, .big);
+    const jumpTo: isize = @as(isize,@intCast(offset)) + 3 + sign * @as(isize,@intCast(jump));
+    std.debug.print("{s:<16} {d:4} -> {d}\n", .{ name, offset, jumpTo });
+    return offset + 3;
 }

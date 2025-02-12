@@ -55,13 +55,11 @@ pub const Compiler = struct {
         }
         const local = &current.locals[current.localCount];
         local.name = name;
-        local.depth = -1 ;//current.scopeDepth;
+        local.depth = -1; //current.scopeDepth;
         current.localCount += 1;
     }
-    pub fn markInitialized(current:*Compiler)void{
+    pub fn markInitialized(current: *Compiler) void {
         current.locals[current.localCount - 1].depth = current.scopeDepth;
-
-
     }
 };
 pub const Parser = struct {
@@ -319,6 +317,8 @@ pub const Parser = struct {
             parser.beginScope();
             parser.block();
             parser.endScope();
+        } else if (parser.match(.kw_if)) {
+            parser.ifStatement();
         } else {
             parser.expressionStatement();
         }
@@ -345,6 +345,34 @@ pub const Parser = struct {
         parser.consume(.tok_semicolon, "Expect ';' after value.");
         parser.emitOp(.op_print);
     }
+    pub fn ifStatement(parser: *Parser) void {
+        parser.consume(.tok_left_paren, "Expect '(' after 'if'.");
+        parser.expression();
+        parser.consume(.tok_right_paren, "Expect ')' after condition.");
+        const thenJump = parser.emitJump(.op_jump_if_false);
+        parser.emitOp(.op_pop);
+        parser.statement();
+        const elseJump = parser.emitJump(.op_jump);
+        parser.patchJump(thenJump);
+        parser.emitOp(.op_pop);
+        if (parser.match(.kw_else)) parser.statement();
+        parser.patchJump(elseJump);
+    }
+    fn emitJump(parser: *Parser, instruction: OpCode) u8 {
+        parser.emitOp(instruction);
+        parser.emitByte(0xff);
+        parser.emitByte(0xff);
+        return @intCast(parser.currentChunk().code.items.len - 2);
+    }
+    fn patchJump(parser: *Parser, offset: usize) void {
+        std.debug.assert(offset <= std.math.maxInt(u8));
+        const jump = parser.currentChunk().code.items.len - offset - 2;
+        if (jump > std.math.maxInt(u16)) {
+            std.debug.panic("Too much code to jump over.\n", .{});
+        }
+        parser.currentChunk().code.items[offset] = @intCast((jump >> 8) & 0xff);
+        parser.currentChunk().code.items[offset + 1] = @intCast(jump & 0xff);
+    }
     pub fn expressionStatement(parser: *Parser) void {
         parser.expression();
         parser.consume(.tok_semicolon, "Expect ';' after value.");
@@ -362,15 +390,15 @@ pub const Parser = struct {
     }
 
     pub fn resolveLocal(parser: *Parser, name: Token) ?u8 {
-        std.debug.print("resolveLocal\n",.{});
+        std.debug.print("resolveLocal\n", .{});
         const compiler = parser.currentCompiler;
         if (compiler.localCount <= 0) return null;
         var i = compiler.localCount - 1;
         while (i >= 0) : (i -= 1) {
             const local = compiler.locals[i];
             if (parser.identifiersEqual(name, local.name)) {
-                if(local.depth == -1){
-                    std.debug.panic("Can't read local variable in its own initializer.\n",.{});
+                if (local.depth == -1) {
+                    std.debug.panic("Can't read local variable in its own initializer.\n", .{});
                 }
                 return @intCast(i);
             }

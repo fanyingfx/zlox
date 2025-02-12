@@ -12,6 +12,8 @@ pub const OpCode = enum(u8) {
     op_less,
     op_negate,
     op_print,
+    op_jump,
+    op_jump_if_false,
     op_pop,
     op_not,
     op_add,

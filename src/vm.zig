@@ -76,6 +76,13 @@ pub const VM = struct {
         defer vm.ip += 1;
         return vm.chunk.code.items[vm.ip];
     }
+    inline fn read_u16(vm: *VM) u16 {
+        var buf: [2]u8 = undefined;
+        vm.ip += 2;
+        buf[0] = vm.chunk.code.items[vm.ip - 2]; // high
+        buf[1] = vm.chunk.code.items[vm.ip - 1]; // low
+        return std.mem.readInt(u16, &buf, .big);
+    }
     inline fn read_constant(vm: *VM) value.Value {
         const idx: usize = @intCast(vm.read_byte());
         return vm.chunk.constants.items[idx];
@@ -167,6 +174,16 @@ pub const VM = struct {
                 .op_print => {
                     value.printValueLn(vm.pop());
                 },
+                .op_jump_if_false => {
+                    const offset = vm.read_u16();
+                    if (!vm.peek(0).as_bool()) {
+                        vm.ip += offset;
+                    }
+                },
+                .op_jump => {
+                    const offset = vm.read_u16();
+                    vm.ip += offset;
+                },
                 .op_define_global => {
                     const name = vm.read_string();
                     _ = vm.globals.set(name, vm.peek(0));
@@ -191,7 +208,7 @@ pub const VM = struct {
                 },
                 .op_get_local => {
                     const slot: usize = @intCast(vm.read_byte());
-                    std.debug.print("slot = {}\n",.{slot});
+                    std.debug.print("slot = {}\n", .{slot});
                     value.printValueLn(vm.stack[slot]);
                     vm.push(vm.stack[slot]);
                 },
