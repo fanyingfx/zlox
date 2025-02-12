@@ -11,7 +11,7 @@ pub fn disassembleChunk(chunk: *const Chunk, name: []const u8) void {
 }
 pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
     std.debug.print("{d:0>4} ", .{offset});
-    if (offset > 0 and chunk.lines.items[offset] == chunk.lines.items[offset - 1]) {
+    if (offset == 0 or (offset > 0 and chunk.lines.items[offset] == chunk.lines.items[offset - 1])) {
         std.debug.print("   | ", .{});
     } else {
         std.debug.print("{d:<4} ", .{chunk.lines.items[offset]});
@@ -38,6 +38,9 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
         => {
             return jumpInstruction(@tagName(instruction), 1, chunk, offset);
         },
+        .op_loop => {
+            return jumpInstruction(@tagName(instruction), -1, chunk, offset);
+        },
     }
 }
 fn simpleInstruction(name: []const u8, offset: usize) usize {
@@ -57,11 +60,9 @@ fn byteInstruction(name: []const u8, chunk: *const Chunk, offset: usize) usize {
     return offset + 2;
 }
 fn jumpInstruction(name: []const u8, sign: isize, chunk: *const Chunk, offset: usize) usize {
-    var buf: [2]u8 = undefined;
-    buf[0] = chunk.code.items[offset + 1];
-    buf[1] = chunk.code.items[offset + 2];
-    const jump = std.mem.readInt(u16, &buf, .big);
-    const jumpTo: isize = @as(isize,@intCast(offset)) + 3 + sign * @as(isize,@intCast(jump));
+    const slice = chunk.code.items[offset + 1 .. offset + 3];
+    const jump = std.mem.readInt(u16, @ptrCast(slice), .big);
+    const jumpTo: isize = @as(isize, @intCast(offset)) + 3 + sign * @as(isize, jump);
     std.debug.print("{s:<16} {d:4} -> {d}\n", .{ name, offset, jumpTo });
     return offset + 3;
 }

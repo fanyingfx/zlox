@@ -184,6 +184,11 @@ pub const VM = struct {
                     const offset = vm.read_u16();
                     vm.ip += offset;
                 },
+                .op_loop => {
+                    const offset = vm.read_u16();
+                    vm.ip -= offset;
+                    break;
+                },
                 .op_define_global => {
                     const name = vm.read_string();
                     _ = vm.globals.set(name, vm.peek(0));

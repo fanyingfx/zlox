@@ -83,6 +83,7 @@ pub const Parser = struct {
     pub fn advance(parser: *Parser) void {
         parser.previous = parser.current;
         parser.current = parser.scanner.scanToken();
+        // std.debug.print("{s}:{d},{s}\n",.{@src().file,@src().line, @tagName(parser.current.type)});
     }
     pub fn consume(parser: *Parser, type_: TokenType, message: []const u8) void {
         if (parser.current.type == type_) {
@@ -138,6 +139,8 @@ pub const Parser = struct {
             .tok_less_equal,
             .tok_concat,
             => binary,
+            .kw_and => and_,
+            .kw_or => or_,
             else => undefined,
         };
     }
@@ -147,6 +150,8 @@ pub const Parser = struct {
             .tok_minus, .tok_plus, .tok_concat => .prec_term,
             .tok_slash, .tok_star => .prec_factor,
             .tok_bang_equal, .tok_equal_equal, .tok_greater, .tok_greater_equal, .tok_less, .tok_less_equal => .prec_comparison,
+            .kw_and => .prec_and,
+            .kw_or => .prec_or,
             else => .prec_none,
         };
     }
@@ -255,6 +260,20 @@ pub const Parser = struct {
             else => unreachable,
         }
     }
+    fn and_(parser: *Parser) void {
+        const endJump = parser.emitJump(.op_jump_if_false);
+        parser.emitOp(.op_pop);
+        parser.parsePrecedence(.prec_and);
+        parser.patchJump(endJump);
+    }
+    fn or_(parser: *Parser) void {
+        const elseJump = parser.emitJump(.op_jump_if_false);
+        const endJump = parser.emitJump(.op_jump);
+        parser.patchJump(elseJump);
+        parser.emitOp(.op_pop);
+        parser.parsePrecedence(.prec_or);
+        parser.patchJump(endJump);
+    }
     pub fn declaration(parser: *Parser) void {
         if (parser.match(.kw_var)) {
             // std.debug.print("parser var\n",.{});
@@ -310,19 +329,6 @@ pub const Parser = struct {
         }
         parser.emitBytes(.op_define_global, global);
     }
-    pub fn statement(parser: *Parser) void {
-        if (parser.match(.kw_print)) {
-            parser.printStatement();
-        } else if (parser.match(.tok_left_brace)) {
-            parser.beginScope();
-            parser.block();
-            parser.endScope();
-        } else if (parser.match(.kw_if)) {
-            parser.ifStatement();
-        } else {
-            parser.expressionStatement();
-        }
-    }
     pub fn block(parser: *Parser) void {
         while (!parser.check(.tok_right_brace) and !parser.check(.tok_eof)) {
             parser.declaration();
@@ -340,23 +346,61 @@ pub const Parser = struct {
             current.localCount -= 1;
         }
     }
-    pub fn printStatement(parser: *Parser) void {
+
+    pub fn statement(parser: *Parser) void {
+        if (parser.match(.kw_print)) {
+            parser.printStatement();
+        } else if (parser.match(.tok_left_brace)) {
+            parser.beginScope();
+            parser.block();
+            parser.endScope();
+        } else if (parser.match(.kw_if)) {
+            parser.ifStatement();
+        } else if (parser.match(.kw_while)) {
+            parser.whileStatement();
+        } else {
+            parser.expressionStatement();
+        }
+    }
+    fn printStatement(parser: *Parser) void {
         parser.expression();
         parser.consume(.tok_semicolon, "Expect ';' after value.");
         parser.emitOp(.op_print);
     }
-    pub fn ifStatement(parser: *Parser) void {
+    fn ifStatement(parser: *Parser) void {
         parser.consume(.tok_left_paren, "Expect '(' after 'if'.");
         parser.expression();
         parser.consume(.tok_right_paren, "Expect ')' after condition.");
         const thenJump = parser.emitJump(.op_jump_if_false);
         parser.emitOp(.op_pop);
         parser.statement();
+        // in byte code, if always has else branch.
         const elseJump = parser.emitJump(.op_jump);
         parser.patchJump(thenJump);
         parser.emitOp(.op_pop);
         if (parser.match(.kw_else)) parser.statement();
         parser.patchJump(elseJump);
+    }
+    fn whileStatement(parser: *Parser) void {
+        const loopStart = parser.currentChunk().code.items.len;
+        parser.consume(.tok_left_paren, "Expect '(' after 'while'.");
+        parser.expression();
+        parser.consume(.tok_right_paren, "Expect ')' after condition.");
+        const exitJump = parser.emitJump(.op_jump_if_false);
+        parser.emitOp(.op_pop);
+        parser.statement();
+        parser.emitLoop(loopStart);
+        parser.patchJump(exitJump);
+        parser.emitOp(.op_pop);
+    }
+    fn emitLoop(parser: *Parser, loopStart: usize) void {
+        parser.emitOp(.op_loop);
+        const offset = parser.currentChunk().code.items.len - loopStart + 2;
+        if (offset > std.math.maxInt(u16)) {
+            std.debug.panic("Loop body too large.",.{});
+        }
+        parser.emitByte(@truncate((offset >> 8) & 0xff));
+        parser.emitByte(@truncate(offset & 0xff));
     }
     fn emitJump(parser: *Parser, instruction: OpCode) u8 {
         parser.emitOp(instruction);
@@ -365,7 +409,7 @@ pub const Parser = struct {
         return @intCast(parser.currentChunk().code.items.len - 2);
     }
     fn patchJump(parser: *Parser, offset: usize) void {
-        std.debug.assert(offset <= std.math.maxInt(u8));
+        // std.debug.assert(offset <= std.math.maxInt(u8));
         const jump = parser.currentChunk().code.items.len - offset - 2;
         if (jump > std.math.maxInt(u16)) {
             std.debug.panic("Too much code to jump over.\n", .{});
@@ -390,7 +434,6 @@ pub const Parser = struct {
     }
 
     pub fn resolveLocal(parser: *Parser, name: Token) ?u8 {
-        std.debug.print("resolveLocal\n", .{});
         const compiler = parser.currentCompiler;
         if (compiler.localCount <= 0) return null;
         var i = compiler.localCount - 1;

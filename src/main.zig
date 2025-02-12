@@ -48,6 +48,7 @@ fn runFile(vm:*VM,path:[]const u8)!void{
     const arena_alloc = arena.allocator();
 
     const source = try std.fs.cwd().readFileAlloc(arena_alloc,path,4096);
+    std.debug.print("source:\n{s}\n",.{source});
     try vm.interpret(source);
 
 }

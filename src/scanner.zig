@@ -33,7 +33,7 @@ pub const Scanner = struct {
         };
     }
     pub fn isAtEnd(self: *const Scanner) bool {
-        return self.current >= self.source.len - 1;
+        return self.current > self.source.len - 1;
     }
     pub fn makeToken(self: *const Scanner, type_: TokenType) Token {
         return .{
@@ -93,8 +93,8 @@ pub const Scanner = struct {
         std.debug.panic("can not peek next!", .{});
     }
     fn skipWhitespace(self: *Scanner) void {
-        if (self.isAtEnd()) return;
         while (true) {
+            if (self.isAtEnd()) return;
             const c = self.peek();
             // std.debug.print("{c}\n",.{c});
             switch (c) {
