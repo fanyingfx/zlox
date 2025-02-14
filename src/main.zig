@@ -11,8 +11,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // var chunk = Chunk.init(allocator);
-    // defer chunk.deinit();
     var table = Table.init(allocator);
     defer table.deinit();
     var collector = Collector.init(allocator,&table);
@@ -36,8 +34,9 @@ fn repl(vm: *VM) !void {
         std.debug.print("> ", .{});
         const len = try std.io.getStdIn().read(&line);
         vm.interpret(line[0..len]) catch |err|{
-            if (err == error.Quit){
-                break;
+            switch(err){
+                error.Quit => break,
+                else => {}
             }
         };
     }
@@ -45,11 +44,9 @@ fn repl(vm: *VM) !void {
 fn runFile(vm:*VM,path:[]const u8)!void{
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    // errdefer arena.deinit();
     const arena_alloc = arena.allocator();
 
     const source = try std.fs.cwd().readFileAlloc(arena_alloc,path,4096);
-    // std.debug.print("source:\n{s}\n",.{source});
     try vm.interpret(source);
 
 }

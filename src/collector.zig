@@ -56,10 +56,6 @@ pub fn freeObject(collector: *Collector, obj: *Obj) void {
         .obj_function => {
             const objFunc = obj.toObjFunction();
             objFunc.deinit(collector.allocator);
-            
-            // if (objFunc.name) |name| {
-            //     name.deinit(collector.allocator);
-            // }
         },
     }
 }

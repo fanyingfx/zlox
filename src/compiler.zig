@@ -13,6 +13,7 @@ const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
 const ObjFunction = @import("object.zig").ObjFunction;
 const Collector = @import("collector.zig");
+const Err = error{CompilerError};
 
 const Prececdence = enum {
     prec_none,
@@ -34,7 +35,7 @@ const Prececdence = enum {
         return @enumFromInt(@intFromEnum(prec) + 1);
     }
 };
-const ParseFn = *const fn (*ParserContext) void;
+const ParseFn = *const fn (*ParserContext) Err!void;
 const UINT8_COUNT = std.math.maxInt(u8) + 1;
 const Local = struct {
     name: Token,
@@ -105,14 +106,14 @@ pub const ParserContext = struct {
     pub fn advance(parser: *ParserContext) void {
         parser.previous = parser.current;
         parser.current = parser.scanner.scanToken();
-        // std.debug.print("{s}:{d},{s}\n",.{@src().file,@src().line, @tagName(parser.current.type)});
     }
-    pub fn consume(parser: *ParserContext, type_: TokenType, message: []const u8) void {
+    pub fn consume(parser: *ParserContext, type_: TokenType, message: []const u8) Err!void {
         if (parser.current.type == type_) {
             parser.advance();
             return;
         }
-        std.debug.panic("{s}\n", .{message});
+        std.debug.print("CompilerError: {s}\n", .{message});
+        return error.CompilerError;
     }
     fn emitByte(parser: *ParserContext, byte: u8) void {
         parser.currentChunk().write(byte, parser.previous.line);
@@ -128,7 +129,7 @@ pub const ParserContext = struct {
         parser.emitOp(op1);
         parser.emitOp(op2);
     }
-    fn emitReturn(parser:*ParserContext)void{
+    fn emitReturn(parser: *ParserContext) void {
         parser.emitOp(.op_nil);
         parser.emitOp(.op_return);
     }
@@ -145,8 +146,8 @@ pub const ParserContext = struct {
         return function_;
     }
 
-    pub fn expression(parser: *ParserContext) void {
-        parser.parsePrecedence(.prec_assignment);
+    pub fn expression(parser: *ParserContext) Err!void {
+        try parser.parsePrecedence(.prec_assignment);
     }
     fn getPrefixFn(token_type: TokenType) ParseFn {
         return switch (token_type) {
@@ -177,7 +178,7 @@ pub const ParserContext = struct {
             .kw_and => and_,
             .kw_or => or_,
             .tok_left_paren => call,
-            else => undefined,
+            else => unreachable,
         };
     }
     fn getPrecedence(token_type: TokenType) Prececdence {
@@ -200,42 +201,43 @@ pub const ParserContext = struct {
     fn check(parser: *ParserContext, tokenType: TokenType) bool {
         return parser.current.type == tokenType;
     }
-    fn parsePrecedence(parser: *ParserContext, prec: Prececdence) void {
+    fn parsePrecedence(parser: *ParserContext, prec: Prececdence) Err!void {
         parser.advance();
         const canAssign = prec.value() <= Prececdence.prec_assignment.value();
-        // std.debug.print("{s}\n",.{@tagName(parser.previous.tygpe)});
         switch (parser.previous.type) {
             .tok_identifier => {
-                parser.variable(canAssign);
+                try parser.variable(canAssign);
             },
             else => |tok| {
                 const prefixFn = getPrefixFn(tok);
-                prefixFn(parser);
+                try prefixFn(parser);
             },
         }
         while (prec.value() <= getPrecedence(parser.current.type).value()) {
             parser.advance();
             const infixFn = getInfixFn(parser.previous.type);
-            infixFn(parser);
+            try infixFn(parser);
             if (canAssign and parser.match(.tok_equal)) {
                 std.debug.panic("Invalid assignment target.\n", .{});
             }
         }
     }
-    fn number(parser: *ParserContext) void {
-        const num = std.fmt.parseFloat(f64, parser.tokenString(parser.previous)) catch unreachable;
+    fn number(parser: *ParserContext) !void {
+        const num = std.fmt.parseFloat(f64, parser.tokenString(parser.previous)) catch {
+            return error.CompilerError;
+        };
         parser.emitConst(number_val(num));
     }
-    fn string(parser: *ParserContext) void {
+    fn string(parser: *ParserContext) !void {
         const prev_tok = parser.previous;
         const str = parser.scanner.source[prev_tok.start + 1 .. prev_tok.start + prev_tok.length - 1];
         const objString = parser.collector.copyString(str);
         parser.emitConst(objString.obj_val());
     }
-    fn variable(parser: *ParserContext, canAssign: bool) void {
-        parser.namedVariable(parser.previous, canAssign);
+    fn variable(parser: *ParserContext, canAssign: bool) Err!void {
+        try parser.namedVariable(parser.previous, canAssign);
     }
-    fn namedVariable(parser: *ParserContext, name: Token, canAssign: bool) void {
+    fn namedVariable(parser: *ParserContext, name: Token, canAssign: bool) Err!void {
         var getOp: OpCode = undefined;
         var setOp: OpCode = undefined;
         var arg = parser.resolveLocal(name);
@@ -248,40 +250,40 @@ pub const ParserContext = struct {
             setOp = .op_set_global;
         }
         if (canAssign and parser.match(.tok_equal)) {
-            parser.expression();
+            try parser.expression();
             parser.emitBytes(setOp, arg.?);
         } else {
             parser.emitBytes(getOp, arg.?);
         }
     }
-    fn group(parser: *ParserContext) void {
-        parser.expression();
-        parser.consume(.tok_right_paren, "Expect ')' after expression.");
+    fn group(parser: *ParserContext) Err!void {
+        try parser.expression();
+        try parser.consume(.tok_right_paren, "Expect ')' after expression.");
     }
-    fn unary(parser: *ParserContext) void {
+    fn unary(parser: *ParserContext) Err!void {
         const opeartorType = parser.previous.type;
-        parser.expression();
+        try parser.expression();
         switch (opeartorType) {
             .tok_minus => parser.emitOp(.op_negate),
             .tok_bang => parser.emitOp(.op_not),
-            else => unreachable,
+            else => return error.CompilerError,
         }
     }
-    fn literal(parser: *ParserContext) void {
+    fn literal(parser: *ParserContext) Err!void {
         const op: OpCode = switch (parser.previous.type) {
             .kw_false => .op_false,
             .kw_nil => .op_nil,
             .kw_true => .op_true,
             .kw_quit => .op_quit,
-            else => unreachable,
+            else => return error.CompilerError,
         };
         parser.emitOp(op);
     }
 
-    fn binary(parser: *ParserContext) void {
+    fn binary(parser: *ParserContext) Err!void {
         const operatorType = parser.previous.type;
         const prec = getPrecedence(operatorType);
-        parser.parsePrecedence(prec.inc());
+        try parser.parsePrecedence(prec.inc());
         switch (operatorType) {
             .tok_bang_equal => parser.emitOps(.op_equal, .op_not),
             .tok_equal_equal => parser.emitOp(.op_equal),
@@ -294,18 +296,18 @@ pub const ParserContext = struct {
             .tok_star => parser.emitOp(.op_multiply),
             .tok_slash => parser.emitOp(.op_divide),
             .tok_concat => parser.emitOp(.op_concat),
-            else => unreachable,
+            else => return error.CompilerError,
         }
     }
-    fn call(parser: *ParserContext) void {
-        const argCount = parser.argumentList();
+    fn call(parser: *ParserContext) Err!void {
+        const argCount = try parser.argumentList();
         parser.emitBytes(.op_call, argCount);
     }
-    fn argumentList(parser: *ParserContext) u8 {
+    fn argumentList(parser: *ParserContext) Err!u8 {
         var argCount: u8 = 0;
         if (!parser.check(.tok_right_paren)) {
             while (true) {
-                parser.expression();
+                try parser.expression();
                 argCount += 1;
                 if (argCount == 255) {
                     std.debug.panic("Can't have more than 255 arguments.", .{});
@@ -315,44 +317,44 @@ pub const ParserContext = struct {
                 }
             }
         }
-        parser.consume(.tok_right_paren, "Expect ')' after arguments.");
+        try parser.consume(.tok_right_paren, "Expect ')' after arguments.");
         return argCount;
     }
-    fn and_(parser: *ParserContext) void {
+    fn and_(parser: *ParserContext) Err!void {
         const endJump = parser.emitJump(.op_jump_if_false);
         parser.emitOp(.op_pop);
-        parser.parsePrecedence(.prec_and);
+        try parser.parsePrecedence(.prec_and);
         parser.patchJump(endJump);
     }
-    fn or_(parser: *ParserContext) void {
+    fn or_(parser: *ParserContext) Err!void {
         const elseJump = parser.emitJump(.op_jump_if_false);
         const endJump = parser.emitJump(.op_jump);
         parser.patchJump(elseJump);
         parser.emitOp(.op_pop);
-        parser.parsePrecedence(.prec_or);
+        try parser.parsePrecedence(.prec_or);
         parser.patchJump(endJump);
     }
-    fn declaration(parser: *ParserContext) void {
+    fn declaration(parser: *ParserContext) Err!void {
         if (parser.match(.kw_fun)) {
-            parser.funDeclaration();
+            try parser.funDeclaration();
         } else if (parser.match(.kw_var)) {
-            parser.varDeclaration();
+            try parser.varDeclaration();
         } else {
-            parser.statement();
+            try parser.statement();
         }
     }
-    fn funDeclaration(parser: *ParserContext) void {
-        const global = parser.parseVariable("Expect function name.");
+    fn funDeclaration(parser: *ParserContext) Err!void {
+        const global = try parser.parseVariable("Expect function name.");
         parser.currentCompiler.?.markInitialized();
-        parser.function(.function);
+        try parser.function(.function);
         parser.defineVariable(global);
     }
-    fn function(parser: *ParserContext, typ: FunctionType) void {
+    fn function(parser: *ParserContext, typ: FunctionType) Err!void {
         // parser.currentCompiler = Compiler.init(parser.currentCompiler, typ);
         var compiler: Compiler = undefined;
         parser.initCompiler(&compiler, typ);
         parser.beginScope();
-        parser.consume(.tok_left_paren, "Expect '('");
+        try parser.consume(.tok_left_paren, "Expect '('");
         // function paramaters
         if (!parser.check(.tok_right_paren)) {
             while (true) {
@@ -360,35 +362,34 @@ pub const ParserContext = struct {
                 if (compiler.function.arity > 255) {
                     std.debug.panic("Can't have more than 255 paramaters\n", .{});
                 }
-                const constant_ = parser.parseVariable("Expect paramater name");
+                const constant_ = try parser.parseVariable("Expect paramater name");
                 parser.defineVariable(constant_);
                 if (!parser.match(.tok_comma)) {
                     break;
                 }
             }
         }
-        parser.consume(.tok_right_paren, "Expect ')'");
-        parser.consume(.tok_left_brace, "Expect '}'");
-        parser.block();
+        try parser.consume(.tok_right_paren, "Expect ')'");
+        try parser.consume(.tok_left_brace, "Expect '}'");
+        try parser.block();
         const function_ = parser.endCompiler();
         parser.emitBytes(.op_constant, parser.makeConst(function_.obj_val()));
     }
 
-    fn varDeclaration(parser: *ParserContext) void {
-        const global = parser.parseVariable("Expect variable name.");
+    fn varDeclaration(parser: *ParserContext) Err!void {
+        const global = try parser.parseVariable("Expect variable name.");
         if (parser.match(.tok_equal)) {
-            parser.expression();
+            try parser.expression();
         } else {
             parser.emitOp(.op_nil);
         }
-        parser.consume(.tok_semicolon, "Expect ';' after variable declaration.");
+        try parser.consume(.tok_semicolon, "Expect ';' after variable declaration.");
         parser.defineVariable(global);
     }
-    fn parseVariable(parser: *ParserContext, errorMessage: []const u8) u8 {
-        parser.consume(.tok_identifier, errorMessage);
+    fn parseVariable(parser: *ParserContext, errorMessage: []const u8) Err!u8 {
+        try parser.consume(.tok_identifier, errorMessage);
         parser.declareVariable();
         if (parser.currentCompiler.?.scopeDepth > 0) {
-            // std.debug.print("local variable\n",.{});
             return 0;
         }
         return parser.identifierConstant(parser.previous);
@@ -422,11 +423,11 @@ pub const ParserContext = struct {
         }
         parser.emitBytes(.op_define_global, global);
     }
-    pub fn block(parser: *ParserContext) void {
+    pub fn block(parser: *ParserContext) Err!void {
         while (!parser.check(.tok_right_brace) and !parser.check(.tok_eof)) {
-            parser.declaration();
+            try parser.declaration();
         }
-        parser.consume(.tok_right_brace, "Expect '}' after block.");
+        try parser.consume(.tok_right_brace, "Expect '}' after block.");
     }
     fn beginScope(parser: *ParserContext) void {
         parser.currentCompiler.?.scopeDepth += 1;
@@ -440,63 +441,63 @@ pub const ParserContext = struct {
         }
     }
 
-    pub fn statement(parser: *ParserContext) void {
+    pub fn statement(parser: *ParserContext) Err!void {
         if (parser.match(.kw_print)) {
-            parser.printStatement();
+            try parser.printStatement();
         } else if (parser.match(.tok_left_brace)) {
             parser.beginScope();
-            parser.block();
+            try parser.block();
             parser.endScope();
         } else if (parser.match(.kw_if)) {
-            parser.ifStatement();
+            try parser.ifStatement();
         } else if (parser.match(.kw_while)) {
-            parser.whileStatement();
-        } else if(parser.match(.kw_return)){
-            parser.returnStatement();
-        }
-        else {
-            parser.expressionStatement();
+            try parser.whileStatement();
+        } else if (parser.match(.kw_return)) {
+            try parser.returnStatement();
+        } else {
+            try parser.expressionStatement();
         }
     }
-    fn printStatement(parser: *ParserContext) void {
-        parser.expression();
-        parser.consume(.tok_semicolon, "Expect ';' after value.");
+    fn printStatement(parser: *ParserContext) Err!void {
+        try parser.expression();
+        try parser.consume(.tok_semicolon, "Expect ';' after value.");
         parser.emitOp(.op_print);
     }
-    fn returnStatement(parser:*ParserContext)void{
-        if(parser.currentCompiler.?.type_ == .script){
-            std.debug.panic("Can't return from top-level code.",.{});
+    fn returnStatement(parser: *ParserContext) Err!void {
+        if (parser.currentCompiler.?.type_ == .script) {
+            std.debug.print("Can't return from top-level code.", .{});
+            return error.CompilerError;
         }
-        if(parser.match(.tok_semicolon)){
+        if (parser.match(.tok_semicolon)) {
             parser.emitReturn();
-        }else{
-            parser.expression();
-            parser.consume(.tok_semicolon,"Expect ';' after return value");
+        } else {
+            try parser.expression();
+            try parser.consume(.tok_semicolon, "Expect ';' after return value");
             parser.emitOp(.op_return);
         }
     }
-    fn ifStatement(parser: *ParserContext) void {
-        parser.consume(.tok_left_paren, "Expect '(' after 'if'.");
-        parser.expression();
-        parser.consume(.tok_right_paren, "Expect ')' after condition.");
+    fn ifStatement(parser: *ParserContext) Err!void {
+        try parser.consume(.tok_left_paren, "Expect '(' after 'if'.");
+        try parser.expression();
+        try parser.consume(.tok_right_paren, "Expect ')' after condition.");
         const thenJump = parser.emitJump(.op_jump_if_false);
         parser.emitOp(.op_pop);
-        parser.statement();
+        try parser.statement();
         // in byte code, if always has else branch.
         const elseJump = parser.emitJump(.op_jump);
         parser.patchJump(thenJump);
         parser.emitOp(.op_pop);
-        if (parser.match(.kw_else)) parser.statement();
+        if (parser.match(.kw_else)) try parser.statement();
         parser.patchJump(elseJump);
     }
-    fn whileStatement(parser: *ParserContext) void {
+    fn whileStatement(parser: *ParserContext) Err!void {
         const loopStart = parser.currentChunk().code.items.len;
-        parser.consume(.tok_left_paren, "Expect '(' after 'while'.");
-        parser.expression();
-        parser.consume(.tok_right_paren, "Expect ')' after condition.");
+        try parser.consume(.tok_left_paren, "Expect '(' after 'while'.");
+        try parser.expression();
+        try parser.consume(.tok_right_paren, "Expect ')' after condition.");
         const exitJump = parser.emitJump(.op_jump_if_false);
         parser.emitOp(.op_pop);
-        parser.statement();
+        try parser.statement();
         parser.emitLoop(loopStart);
         parser.patchJump(exitJump);
         parser.emitOp(.op_pop);
@@ -525,9 +526,9 @@ pub const ParserContext = struct {
         parser.currentChunk().code.items[offset] = @intCast((jump >> 8) & 0xff);
         parser.currentChunk().code.items[offset + 1] = @intCast(jump & 0xff);
     }
-    pub fn expressionStatement(parser: *ParserContext) void {
-        parser.expression();
-        parser.consume(.tok_semicolon, "Expect ';' after value.");
+    pub fn expressionStatement(parser: *ParserContext) Err!void {
+        try parser.expression();
+        try parser.consume(.tok_semicolon, "Expect ';' after value.");
         parser.emitOp(.op_pop);
     }
     fn emitConst(parser: *ParserContext, value: Value) void {
@@ -570,21 +571,15 @@ pub const ParserContext = struct {
     }
 };
 
-pub fn compile(collector: *Collector, source: []const u8, compilingchunk: *Chunk) *ObjFunction {
+pub fn compile(collector: *Collector, source: []const u8, compilingchunk: *Chunk) Err!*ObjFunction {
     var scanner = Scanner.init(source);
 
-    // compiler.function = collector.allocateFunction();
     var compiler: Compiler = undefined;
     var parser = ParserContext.init(collector, &scanner, compilingchunk);
     parser.initCompiler(&compiler, .script);
-    // const local = &parser.currentCompiler.locals[parser.currentCompiler.localCount];
-    // parser.currentCompiler.localCount += 1;
-    // local.depth = 0;
-    // local.name.start = 0;
-    // local.name.length = 0;
     parser.advance();
     while (!parser.match(.tok_eof)) {
-        parser.declaration();
+        try parser.declaration();
     }
     return parser.endCompiler();
 }
