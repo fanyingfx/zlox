@@ -1,4 +1,5 @@
 const std = @import("std");
+const config = @import("config");
 const Scanner = @import("scanner.zig").Scanner;
 const Chunk = @import("common.zig").Chunk;
 const OpCode = @import("common.zig").OpCode;
@@ -10,6 +11,7 @@ const nil_val = @import("value.zig").nil_val;
 const bool_val = @import("value.zig").bool_val;
 const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
+const ObjFunction = @import("object.zig").ObjFunction;
 const Collector = @import("collector.zig");
 
 const Prececdence = enum {
@@ -32,23 +34,20 @@ const Prececdence = enum {
         return @enumFromInt(@intFromEnum(prec) + 1);
     }
 };
-const ParseFn = *const fn (*Parser) void;
+const ParseFn = *const fn (*ParserContext) void;
 const UINT8_COUNT = std.math.maxInt(u8) + 1;
 const Local = struct {
     name: Token,
     depth: isize,
 };
+const FunctionType = enum { function, script };
 pub const Compiler = struct {
+    enclosing: ?*Compiler,
     locals: [UINT8_COUNT]Local,
     localCount: usize,
     scopeDepth: isize,
-    pub fn init() Compiler {
-        return .{
-            .locals = undefined,
-            .localCount = 0,
-            .scopeDepth = 0,
-        };
-    }
+    function: *ObjFunction,
+    type_: FunctionType,
     pub fn addLocal(current: *Compiler, name: Token) void {
         if (current.localCount == UINT8_COUNT) {
             std.debug.panic("Too many local variables in function.\n", .{});
@@ -59,58 +58,94 @@ pub const Compiler = struct {
         current.localCount += 1;
     }
     pub fn markInitialized(current: *Compiler) void {
+        if (current.scopeDepth == 0) return;
         current.locals[current.localCount - 1].depth = current.scopeDepth;
     }
 };
-pub const Parser = struct {
+pub const ParserContext = struct {
     current: Token,
     previous: Token,
     scanner: *Scanner,
     compilingChunk: *Chunk,
     collector: *Collector,
-    currentCompiler: *Compiler,
+    currentCompiler: ?*Compiler,
 
-    pub fn init(collector: *Collector, scanner: *Scanner, chunk: *Chunk, compiler: *Compiler) Parser {
+    pub fn init(collector: *Collector, scanner: *Scanner, chunk: *Chunk) ParserContext {
         return .{
             .current = undefined,
             .previous = undefined,
             .scanner = scanner,
             .compilingChunk = chunk,
             .collector = collector,
-            .currentCompiler = compiler,
+            .currentCompiler = null,
         };
     }
-    pub fn advance(parser: *Parser) void {
+    fn initCompiler(parser: *ParserContext, compiler: *Compiler, typ: FunctionType) void {
+        compiler.* = .{
+            .enclosing = parser.currentCompiler,
+            .locals = undefined,
+            .localCount = 0,
+            .scopeDepth = 0,
+            .type_ = typ,
+            .function = undefined,
+        };
+        compiler.function = parser.collector.allocateFunction();
+        parser.currentCompiler = compiler;
+
+        if (compiler.type_ != .script) {
+            compiler.function.name = parser.collector.copyString(parser.tokenString(parser.previous));
+        }
+
+        const local = &compiler.locals[parser.currentCompiler.?.localCount];
+        compiler.localCount += 1;
+        local.depth = 0;
+        local.name.start = 0;
+        local.name.length = 0;
+    }
+    pub fn advance(parser: *ParserContext) void {
         parser.previous = parser.current;
         parser.current = parser.scanner.scanToken();
         // std.debug.print("{s}:{d},{s}\n",.{@src().file,@src().line, @tagName(parser.current.type)});
     }
-    pub fn consume(parser: *Parser, type_: TokenType, message: []const u8) void {
+    pub fn consume(parser: *ParserContext, type_: TokenType, message: []const u8) void {
         if (parser.current.type == type_) {
             parser.advance();
             return;
         }
         std.debug.panic("{s}\n", .{message});
     }
-    fn emitByte(parser: *Parser, byte: u8) void {
+    fn emitByte(parser: *ParserContext, byte: u8) void {
         parser.currentChunk().write(byte, parser.previous.line);
     }
-    fn emitBytes(parser: *Parser, op: OpCode, byte: u8) void {
+    fn emitBytes(parser: *ParserContext, op: OpCode, byte: u8) void {
         parser.emitOp(op);
         parser.emitByte(byte);
     }
-    fn emitOp(parser: *Parser, op: OpCode) void {
+    fn emitOp(parser: *ParserContext, op: OpCode) void {
         parser.currentChunk().writeOp(op, parser.previous.line);
     }
-    fn emitOps(parser: *Parser, op1: OpCode, op2: OpCode) void {
+    fn emitOps(parser: *ParserContext, op1: OpCode, op2: OpCode) void {
         parser.emitOp(op1);
         parser.emitOp(op2);
     }
-    pub fn endCompiler(parser: *Parser) void {
+    fn emitReturn(parser:*ParserContext)void{
+        parser.emitOp(.op_nil);
         parser.emitOp(.op_return);
     }
+    pub fn endCompiler(parser: *ParserContext) *ObjFunction {
+        parser.emitReturn();
+        const function_ = parser.currentCompiler.?.function;
+        if (comptime config.enable_debug) {
+            const debug = @import("debug.zig");
+            // std.debug.print("{any}\n")
+            const name = if (function_.name) |name| name.chars else "<script>";
+            debug.disassembleChunk(parser.currentChunk(), name);
+        }
+        parser.currentCompiler = parser.currentCompiler.?.enclosing;
+        return function_;
+    }
 
-    pub fn expression(parser: *Parser) void {
+    pub fn expression(parser: *ParserContext) void {
         parser.parsePrecedence(.prec_assignment);
     }
     fn getPrefixFn(token_type: TokenType) ParseFn {
@@ -141,6 +176,7 @@ pub const Parser = struct {
             => binary,
             .kw_and => and_,
             .kw_or => or_,
+            .tok_left_paren => call,
             else => undefined,
         };
     }
@@ -152,18 +188,19 @@ pub const Parser = struct {
             .tok_bang_equal, .tok_equal_equal, .tok_greater, .tok_greater_equal, .tok_less, .tok_less_equal => .prec_comparison,
             .kw_and => .prec_and,
             .kw_or => .prec_or,
+            .tok_left_paren => .prec_call,
             else => .prec_none,
         };
     }
-    fn match(parser: *Parser, tokenType: TokenType) bool {
+    fn match(parser: *ParserContext, tokenType: TokenType) bool {
         if (!parser.check(tokenType)) return false;
         parser.advance();
         return true;
     }
-    fn check(parser: *Parser, tokenType: TokenType) bool {
+    fn check(parser: *ParserContext, tokenType: TokenType) bool {
         return parser.current.type == tokenType;
     }
-    fn parsePrecedence(parser: *Parser, prec: Prececdence) void {
+    fn parsePrecedence(parser: *ParserContext, prec: Prececdence) void {
         parser.advance();
         const canAssign = prec.value() <= Prececdence.prec_assignment.value();
         // std.debug.print("{s}\n",.{@tagName(parser.previous.tygpe)});
@@ -185,20 +222,20 @@ pub const Parser = struct {
             }
         }
     }
-    fn number(parser: *Parser) void {
+    fn number(parser: *ParserContext) void {
         const num = std.fmt.parseFloat(f64, parser.tokenString(parser.previous)) catch unreachable;
         parser.emitConst(number_val(num));
     }
-    fn string(parser: *Parser) void {
+    fn string(parser: *ParserContext) void {
         const prev_tok = parser.previous;
         const str = parser.scanner.source[prev_tok.start + 1 .. prev_tok.start + prev_tok.length - 1];
         const objString = parser.collector.copyString(str);
         parser.emitConst(objString.obj_val());
     }
-    fn variable(parser: *Parser, canAssign: bool) void {
+    fn variable(parser: *ParserContext, canAssign: bool) void {
         parser.namedVariable(parser.previous, canAssign);
     }
-    fn namedVariable(parser: *Parser, name: Token, canAssign: bool) void {
+    fn namedVariable(parser: *ParserContext, name: Token, canAssign: bool) void {
         var getOp: OpCode = undefined;
         var setOp: OpCode = undefined;
         var arg = parser.resolveLocal(name);
@@ -217,11 +254,11 @@ pub const Parser = struct {
             parser.emitBytes(getOp, arg.?);
         }
     }
-    fn group(parser: *Parser) void {
+    fn group(parser: *ParserContext) void {
         parser.expression();
         parser.consume(.tok_right_paren, "Expect ')' after expression.");
     }
-    fn unary(parser: *Parser) void {
+    fn unary(parser: *ParserContext) void {
         const opeartorType = parser.previous.type;
         parser.expression();
         switch (opeartorType) {
@@ -230,7 +267,7 @@ pub const Parser = struct {
             else => unreachable,
         }
     }
-    fn literal(parser: *Parser) void {
+    fn literal(parser: *ParserContext) void {
         const op: OpCode = switch (parser.previous.type) {
             .kw_false => .op_false,
             .kw_nil => .op_nil,
@@ -241,7 +278,7 @@ pub const Parser = struct {
         parser.emitOp(op);
     }
 
-    fn binary(parser: *Parser) void {
+    fn binary(parser: *ParserContext) void {
         const operatorType = parser.previous.type;
         const prec = getPrecedence(operatorType);
         parser.parsePrecedence(prec.inc());
@@ -260,13 +297,34 @@ pub const Parser = struct {
             else => unreachable,
         }
     }
-    fn and_(parser: *Parser) void {
+    fn call(parser: *ParserContext) void {
+        const argCount = parser.argumentList();
+        parser.emitBytes(.op_call, argCount);
+    }
+    fn argumentList(parser: *ParserContext) u8 {
+        var argCount: u8 = 0;
+        if (!parser.check(.tok_right_paren)) {
+            while (true) {
+                parser.expression();
+                argCount += 1;
+                if (argCount == 255) {
+                    std.debug.panic("Can't have more than 255 arguments.", .{});
+                }
+                if (!parser.match(.tok_comma)) {
+                    break;
+                }
+            }
+        }
+        parser.consume(.tok_right_paren, "Expect ')' after arguments.");
+        return argCount;
+    }
+    fn and_(parser: *ParserContext) void {
         const endJump = parser.emitJump(.op_jump_if_false);
         parser.emitOp(.op_pop);
         parser.parsePrecedence(.prec_and);
         parser.patchJump(endJump);
     }
-    fn or_(parser: *Parser) void {
+    fn or_(parser: *ParserContext) void {
         const elseJump = parser.emitJump(.op_jump_if_false);
         const endJump = parser.emitJump(.op_jump);
         parser.patchJump(elseJump);
@@ -274,15 +332,49 @@ pub const Parser = struct {
         parser.parsePrecedence(.prec_or);
         parser.patchJump(endJump);
     }
-    pub fn declaration(parser: *Parser) void {
-        if (parser.match(.kw_var)) {
-            // std.debug.print("parser var\n",.{});
+    fn declaration(parser: *ParserContext) void {
+        if (parser.match(.kw_fun)) {
+            parser.funDeclaration();
+        } else if (parser.match(.kw_var)) {
             parser.varDeclaration();
         } else {
             parser.statement();
         }
     }
-    pub fn varDeclaration(parser: *Parser) void {
+    fn funDeclaration(parser: *ParserContext) void {
+        const global = parser.parseVariable("Expect function name.");
+        parser.currentCompiler.?.markInitialized();
+        parser.function(.function);
+        parser.defineVariable(global);
+    }
+    fn function(parser: *ParserContext, typ: FunctionType) void {
+        // parser.currentCompiler = Compiler.init(parser.currentCompiler, typ);
+        var compiler: Compiler = undefined;
+        parser.initCompiler(&compiler, typ);
+        parser.beginScope();
+        parser.consume(.tok_left_paren, "Expect '('");
+        // function paramaters
+        if (!parser.check(.tok_right_paren)) {
+            while (true) {
+                compiler.function.arity += 1;
+                if (compiler.function.arity > 255) {
+                    std.debug.panic("Can't have more than 255 paramaters\n", .{});
+                }
+                const constant_ = parser.parseVariable("Expect paramater name");
+                parser.defineVariable(constant_);
+                if (!parser.match(.tok_comma)) {
+                    break;
+                }
+            }
+        }
+        parser.consume(.tok_right_paren, "Expect ')'");
+        parser.consume(.tok_left_brace, "Expect '}'");
+        parser.block();
+        const function_ = parser.endCompiler();
+        parser.emitBytes(.op_constant, parser.makeConst(function_.obj_val()));
+    }
+
+    fn varDeclaration(parser: *ParserContext) void {
         const global = parser.parseVariable("Expect variable name.");
         if (parser.match(.tok_equal)) {
             parser.expression();
@@ -292,54 +384,55 @@ pub const Parser = struct {
         parser.consume(.tok_semicolon, "Expect ';' after variable declaration.");
         parser.defineVariable(global);
     }
-    fn parseVariable(parser: *Parser, errorMessage: []const u8) u8 {
+    fn parseVariable(parser: *ParserContext, errorMessage: []const u8) u8 {
         parser.consume(.tok_identifier, errorMessage);
         parser.declareVariable();
-        if (parser.currentCompiler.scopeDepth > 0) {
+        if (parser.currentCompiler.?.scopeDepth > 0) {
             // std.debug.print("local variable\n",.{});
             return 0;
         }
         return parser.identifierConstant(parser.previous);
     }
-    fn identifierConstant(parser: *Parser, name: Token) u8 {
+    fn identifierConstant(parser: *ParserContext, name: Token) u8 {
         const objStr = parser.collector.copyString(parser.tokenString(name));
         return parser.makeConst(objStr.obj_val());
     }
-    fn declareVariable(parser: *Parser) void {
-        if (parser.currentCompiler.scopeDepth == 0) return;
+    fn declareVariable(parser: *ParserContext) void {
+        const current = parser.currentCompiler.?;
+        if (current.scopeDepth == 0) return;
         const name = parser.previous;
 
-        var i = parser.currentCompiler.localCount;
+        var i = current.localCount;
         while (i > 0) {
             i -= 1;
-            const local = &parser.currentCompiler.locals[i];
-            if (local.depth != -1 and local.depth < parser.currentCompiler.scopeDepth) {
+            const local = &current.locals[i];
+            if (local.depth != -1 and local.depth < current.scopeDepth) {
                 break;
             }
             if (std.meta.eql(name, local.name)) {
                 std.debug.panic("Alreay a variable with this name in this scope.", .{});
             }
         }
-        parser.currentCompiler.addLocal(name);
+        current.addLocal(name);
     }
-    fn defineVariable(parser: *Parser, global: u8) void {
-        if (parser.currentCompiler.scopeDepth > 0) {
-            parser.currentCompiler.markInitialized();
+    fn defineVariable(parser: *ParserContext, global: u8) void {
+        if (parser.currentCompiler.?.scopeDepth > 0) {
+            parser.currentCompiler.?.markInitialized();
             return;
         }
         parser.emitBytes(.op_define_global, global);
     }
-    pub fn block(parser: *Parser) void {
+    pub fn block(parser: *ParserContext) void {
         while (!parser.check(.tok_right_brace) and !parser.check(.tok_eof)) {
             parser.declaration();
         }
         parser.consume(.tok_right_brace, "Expect '}' after block.");
     }
-    fn beginScope(parser: *Parser) void {
-        parser.currentCompiler.scopeDepth += 1;
+    fn beginScope(parser: *ParserContext) void {
+        parser.currentCompiler.?.scopeDepth += 1;
     }
-    fn endScope(parser: *Parser) void {
-        const current = parser.currentCompiler;
+    fn endScope(parser: *ParserContext) void {
+        const current = parser.currentCompiler.?;
         current.scopeDepth -= 1;
         while (current.localCount > 0 and current.locals[current.localCount - 1].depth > current.scopeDepth) {
             parser.emitOp(.op_pop);
@@ -347,7 +440,7 @@ pub const Parser = struct {
         }
     }
 
-    pub fn statement(parser: *Parser) void {
+    pub fn statement(parser: *ParserContext) void {
         if (parser.match(.kw_print)) {
             parser.printStatement();
         } else if (parser.match(.tok_left_brace)) {
@@ -358,16 +451,31 @@ pub const Parser = struct {
             parser.ifStatement();
         } else if (parser.match(.kw_while)) {
             parser.whileStatement();
-        } else {
+        } else if(parser.match(.kw_return)){
+            parser.returnStatement();
+        }
+        else {
             parser.expressionStatement();
         }
     }
-    fn printStatement(parser: *Parser) void {
+    fn printStatement(parser: *ParserContext) void {
         parser.expression();
         parser.consume(.tok_semicolon, "Expect ';' after value.");
         parser.emitOp(.op_print);
     }
-    fn ifStatement(parser: *Parser) void {
+    fn returnStatement(parser:*ParserContext)void{
+        if(parser.currentCompiler.?.type_ == .script){
+            std.debug.panic("Can't return from top-level code.",.{});
+        }
+        if(parser.match(.tok_semicolon)){
+            parser.emitReturn();
+        }else{
+            parser.expression();
+            parser.consume(.tok_semicolon,"Expect ';' after return value");
+            parser.emitOp(.op_return);
+        }
+    }
+    fn ifStatement(parser: *ParserContext) void {
         parser.consume(.tok_left_paren, "Expect '(' after 'if'.");
         parser.expression();
         parser.consume(.tok_right_paren, "Expect ')' after condition.");
@@ -381,7 +489,7 @@ pub const Parser = struct {
         if (parser.match(.kw_else)) parser.statement();
         parser.patchJump(elseJump);
     }
-    fn whileStatement(parser: *Parser) void {
+    fn whileStatement(parser: *ParserContext) void {
         const loopStart = parser.currentChunk().code.items.len;
         parser.consume(.tok_left_paren, "Expect '(' after 'while'.");
         parser.expression();
@@ -393,22 +501,22 @@ pub const Parser = struct {
         parser.patchJump(exitJump);
         parser.emitOp(.op_pop);
     }
-    fn emitLoop(parser: *Parser, loopStart: usize) void {
+    fn emitLoop(parser: *ParserContext, loopStart: usize) void {
         parser.emitOp(.op_loop);
         const offset = parser.currentChunk().code.items.len - loopStart + 2;
         if (offset > std.math.maxInt(u16)) {
-            std.debug.panic("Loop body too large.",.{});
+            std.debug.panic("Loop body too large.", .{});
         }
         parser.emitByte(@truncate((offset >> 8) & 0xff));
         parser.emitByte(@truncate(offset & 0xff));
     }
-    fn emitJump(parser: *Parser, instruction: OpCode) u8 {
+    fn emitJump(parser: *ParserContext, instruction: OpCode) u8 {
         parser.emitOp(instruction);
         parser.emitByte(0xff);
         parser.emitByte(0xff);
         return @intCast(parser.currentChunk().code.items.len - 2);
     }
-    fn patchJump(parser: *Parser, offset: usize) void {
+    fn patchJump(parser: *ParserContext, offset: usize) void {
         // std.debug.assert(offset <= std.math.maxInt(u8));
         const jump = parser.currentChunk().code.items.len - offset - 2;
         if (jump > std.math.maxInt(u16)) {
@@ -417,15 +525,15 @@ pub const Parser = struct {
         parser.currentChunk().code.items[offset] = @intCast((jump >> 8) & 0xff);
         parser.currentChunk().code.items[offset + 1] = @intCast(jump & 0xff);
     }
-    pub fn expressionStatement(parser: *Parser) void {
+    pub fn expressionStatement(parser: *ParserContext) void {
         parser.expression();
         parser.consume(.tok_semicolon, "Expect ';' after value.");
         parser.emitOp(.op_pop);
     }
-    fn emitConst(parser: *Parser, value: Value) void {
+    fn emitConst(parser: *ParserContext, value: Value) void {
         parser.emitBytes(.op_constant, parser.makeConst(value));
     }
-    fn makeConst(parser: *Parser, value: Value) u8 {
+    fn makeConst(parser: *ParserContext, value: Value) u8 {
         const constant = parser.currentChunk().addConstant(value);
         if (constant > std.math.maxInt(u8)) {
             std.debug.panic("Too many constants in on chunk", .{});
@@ -433,8 +541,8 @@ pub const Parser = struct {
         return @intCast(constant);
     }
 
-    pub fn resolveLocal(parser: *Parser, name: Token) ?u8 {
-        const compiler = parser.currentCompiler;
+    pub fn resolveLocal(parser: *ParserContext, name: Token) ?u8 {
+        const compiler = parser.currentCompiler.?;
         if (compiler.localCount <= 0) return null;
         var i = compiler.localCount - 1;
         while (i >= 0) : (i -= 1) {
@@ -449,25 +557,34 @@ pub const Parser = struct {
         }
         return null;
     }
-    fn tokenString(parser: *const Parser, tok: Token) []const u8 {
+    fn tokenString(parser: *const ParserContext, tok: Token) []const u8 {
         return parser.scanner.source[tok.start .. tok.start + tok.length];
     }
-    fn identifiersEqual(parser: *const Parser, a: Token, b: Token) bool {
+    fn identifiersEqual(parser: *const ParserContext, a: Token, b: Token) bool {
         const astr = parser.tokenString(a);
         const bstr = parser.tokenString(b);
         return std.mem.eql(u8, astr, bstr);
     }
-    fn currentChunk(parser: *const Parser) *Chunk {
-        return parser.compilingChunk;
+    fn currentChunk(parser: *const ParserContext) *Chunk {
+        return &parser.currentCompiler.?.function.chunk;
     }
 };
 
-pub fn compile(collector: *Collector, compiler: *Compiler, source: []const u8, compilingchunk: *Chunk) void {
+pub fn compile(collector: *Collector, source: []const u8, compilingchunk: *Chunk) *ObjFunction {
     var scanner = Scanner.init(source);
-    var parser = Parser.init(collector, &scanner, compilingchunk, compiler);
+
+    // compiler.function = collector.allocateFunction();
+    var compiler: Compiler = undefined;
+    var parser = ParserContext.init(collector, &scanner, compilingchunk);
+    parser.initCompiler(&compiler, .script);
+    // const local = &parser.currentCompiler.locals[parser.currentCompiler.localCount];
+    // parser.currentCompiler.localCount += 1;
+    // local.depth = 0;
+    // local.name.start = 0;
+    // local.name.length = 0;
     parser.advance();
     while (!parser.match(.tok_eof)) {
         parser.declaration();
     }
-    parser.endCompiler();
+    return parser.endCompiler();
 }

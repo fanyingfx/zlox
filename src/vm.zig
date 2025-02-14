@@ -11,88 +11,139 @@ const isFalsey = @import("value.zig").isFalsey;
 const ValueType = @import("value.zig").ValueType;
 const valuesEqual = @import("value.zig").valuesEqual;
 const ObjString = @import("object.zig").ObjString;
+const ObjFunction = @import("object.zig").ObjFunction;
 const Obj = @import("object.zig").Obj;
 const Collector = @import("collector.zig");
 const Table = @import("table.zig");
 const Compiler = @import("compiler.zig").Compiler;
+const Chunk = @import("common.zig").Chunk;
+const OpCode = @import("common.zig").OpCode;
+const value = @import("value.zig");
+const Value = value.Value;
 
 const InterpretResult = error{
     CompileError,
     RuntimeError,
     Quit,
 };
+const CallFrame = struct {
+    function: *ObjFunction,
+    ip: usize,
+    base: usize = 0,
+    slots: []Value,
 
-const Chunk = @import("common.zig").Chunk;
-const OpCode = @import("common.zig").OpCode;
-const value = @import("value.zig");
-const Value = value.Value;
-const STACK_MAX = 256;
+    inline fn read_byte(frame: *CallFrame) u8 {
+        defer frame.ip += 1;
+        return frame.function.chunk.code.items[frame.ip];
+    }
+    inline fn read_u16(frame: *CallFrame) u16 {
+        var buf: [2]u8 = undefined;
+        frame.ip += 2;
+        buf[0] = frame.function.chunk.code.items[frame.ip - 2]; // high
+        buf[1] = frame.function.chunk.code.items[frame.ip - 1]; // low
+        return std.mem.readInt(u16, &buf, .big);
+    }
+    inline fn read_constant(frame: *CallFrame) value.Value {
+        const idx: usize = @intCast(frame.read_byte());
+        return frame.function.chunk.constants.items[idx];
+    }
+    fn read_string(vm: *CallFrame) *ObjString {
+        return vm.read_constant().as_objString();
+    }
+};
+
+const FRAMES_MAX = 64;
+const STACK_MAX = FRAMES_MAX * std.math.maxInt(u8);
 pub const VM = struct {
-    chunk: *Chunk,
-    ip: usize, // TODO change it to pointer later?
+    chunk: *const Chunk,
+    // ip: usize, // TODO change it to pointer later?
     stack: [STACK_MAX]Value,
     collector: *Collector,
     stackTop: usize,
     globals: Table,
+    frames: [FRAMES_MAX]CallFrame,
+    frameCount: usize,
 
-    pub fn init(collector: *Collector, chunk: *Chunk) VM {
+    pub fn init(collector: *Collector) VM {
         return .{
-            .chunk = chunk,
-            .ip = 0,
+            .chunk = &Chunk.init(collector.allocator),
+            // .ip = 0,
             .stack = undefined,
             .stackTop = 0,
+            .frameCount = 0,
+            .frames = undefined,
             .collector = collector,
             .globals = Table.init(collector.allocator),
         };
     }
     pub fn deinit(vm: *VM) void {
-        vm.collector.freeObjects();
+        // vm.collector.freeObjects();
         vm.globals.deinit();
     }
-    pub fn push(vm: *VM, value_: Value) void {
+    fn push(vm: *VM, value_: Value) void {
         vm.stack[vm.stackTop] = value_;
         vm.stackTop += 1;
     }
-    pub fn pop(vm: *VM) Value {
+    fn pop(vm: *VM) Value {
         vm.stackTop -= 1;
         return vm.stack[vm.stackTop];
     }
-    pub fn peek(vm: *const VM, distance: usize) Value {
+    fn peek(vm: *const VM, distance: usize) Value {
         return vm.stack[vm.stackTop - 1 - distance];
     }
-    pub fn resetStack(vm: *VM) void {
+    fn callValue(vm: *VM, callee: Value, argCount: usize) bool {
+        if (callee.is_obj()) {
+            switch (callee.as_obj().type) {
+                .obj_function => {
+                    return vm.call(callee.as_function(), argCount);
+                },
+                else => {},
+            }
+        }
+        std.debug.print("Can only call functions.", .{});
+        return false;
+    }
+    fn call(vm: *VM, function: *ObjFunction, argCount: usize) bool {
+        if (vm.frameCount == FRAMES_MAX) {
+            std.debug.panic("stack overflow\n", .{});
+        }
+        const frame = &vm.frames[vm.frameCount];
+        vm.frameCount += 1;
+        frame.function = function;
+        frame.ip = 0;
+        frame.slots = vm.stack[vm.stackTop - argCount - 1 ..];
+        frame.base = vm.stackTop - argCount - 1;
+        return true;
+    }
+    fn resetStack(vm: *VM) void {
         vm.stackTop = 0;
+    }
+    fn printStack(vm: *VM, comptime msg: []const u8) void {
+        if (comptime config.print_stack) {
+            std.debug.print("----" ++ msg ++ "--------\n", .{});
+            defer std.debug.print("------------\n", .{});
+            if (vm.stackTop == 0) return;
+            var top = vm.stackTop - 1;
+            while (top >= 0) {
+                value.printValueLn(vm.stack[top]);
+                if (top == 0) break;
+                top -= 1;
+            }
+        }
     }
     pub fn interpret(vm: *VM, source: []const u8) !void {
         var chunk = Chunk.init(vm.collector.allocator);
         defer chunk.deinit();
-        var compiler_ = Compiler.init();
-        compiler.compile(vm.collector, &compiler_, source, &chunk);
+        const function = compiler.compile(vm.collector, source, &chunk);
         vm.chunk = &chunk;
-        vm.ip = 0;
+        vm.push(function.obj_val());
+        _ = vm.call(function, 0);
         return vm.run();
-    }
-    inline fn read_byte(vm: *VM) u8 {
-        defer vm.ip += 1;
-        return vm.chunk.code.items[vm.ip];
-    }
-    inline fn read_u16(vm: *VM) u16 {
-        var buf: [2]u8 = undefined;
-        vm.ip += 2;
-        buf[0] = vm.chunk.code.items[vm.ip - 2]; // high
-        buf[1] = vm.chunk.code.items[vm.ip - 1]; // low
-        return std.mem.readInt(u16, &buf, .big);
-    }
-    inline fn read_constant(vm: *VM) value.Value {
-        const idx: usize = @intCast(vm.read_byte());
-        return vm.chunk.constants.items[idx];
-    }
-    fn read_string(vm: *VM) *ObjString {
-        return vm.read_constant().as_objString();
     }
     inline fn binary_op(vm: *VM, comptime typ: type, valueType: fn (typ) Value, op: OpCode) !void {
         if (!vm.peek(0).is_number() or !vm.peek(1).is_number()) {
             std.debug.print("Operands must be numbers.\n", .{});
+            vm.printStack("stack overflow");
             return error.RuntimeError;
         }
         const b = vm.pop().as_number();
@@ -115,6 +166,7 @@ pub const VM = struct {
         vm.push(valueType(val));
     }
     fn run(vm: *VM) !void {
+        var frame = &vm.frames[vm.frameCount - 1];
         while (true) {
             if (comptime config.print_stack) {
                 std.debug.print("          ", .{});
@@ -127,12 +179,12 @@ pub const VM = struct {
                 std.debug.print("\n", .{});
             }
             if (comptime config.enable_debug) {
-                _ = debug.disassembleInstruction(vm.chunk, vm.ip);
+                _ = debug.disassembleInstruction(&frame.function.chunk, frame.ip);
             }
-            const instruction = OpCode.fromU8(vm.read_byte());
+            const instruction = OpCode.fromU8(frame.read_byte());
             switch (instruction) {
                 .op_constant => {
-                    const constant = vm.read_constant();
+                    const constant = frame.read_constant();
                     vm.push(constant);
                 },
                 .op_nil => vm.push(nil_val()),
@@ -175,27 +227,27 @@ pub const VM = struct {
                     value.printValueLn(vm.pop());
                 },
                 .op_jump_if_false => {
-                    const offset = vm.read_u16();
+                    const offset = frame.read_u16();
                     if (!vm.peek(0).as_bool()) {
-                        vm.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .op_jump => {
-                    const offset = vm.read_u16();
-                    vm.ip += offset;
+                    const offset = frame.read_u16();
+                    frame.ip += offset;
                 },
                 .op_loop => {
-                    const offset = vm.read_u16();
-                    vm.ip -= offset;
+                    const offset = frame.read_u16();
+                    frame.ip -= offset;
                     break;
                 },
                 .op_define_global => {
-                    const name = vm.read_string();
+                    const name = frame.read_string();
                     _ = vm.globals.set(name, vm.peek(0));
                     _ = vm.pop();
                 },
                 .op_get_global => {
-                    const name = vm.read_string();
+                    const name = frame.read_string();
                     if (vm.globals.get(name)) |v| {
                         vm.push(v);
                     } else {
@@ -204,7 +256,7 @@ pub const VM = struct {
                     }
                 },
                 .op_set_global => {
-                    const name = vm.read_string();
+                    const name = frame.read_string();
                     if (vm.globals.set(name, vm.peek(0))) {
                         _ = vm.globals.delete(name);
                         std.debug.print("Undefined variable '{s}'.", .{name.chars});
@@ -212,20 +264,38 @@ pub const VM = struct {
                     }
                 },
                 .op_get_local => {
-                    const slot: usize = @intCast(vm.read_byte());
-                    std.debug.print("slot = {}\n", .{slot});
-                    value.printValueLn(vm.stack[slot]);
-                    vm.push(vm.stack[slot]);
+                    const slot: usize = @intCast(frame.read_byte());
+                    // std.debug.print("slot = {}\n", .{slot});
+                    // value.printValueLn(frame.slots[slot]);
+                    vm.push(frame.slots[slot]);
                 },
                 .op_set_local => {
-                    const slot: usize = @intCast(vm.read_byte());
-                    vm.stack[slot] = vm.peek(0);
+                    const slot: usize = @intCast(frame.read_byte());
+                    frame.slots[slot] = vm.peek(0);
                 },
                 .op_pop => {
                     _ = vm.pop();
                 },
+                .op_call => {
+                    const argCount: usize = @intCast(frame.read_byte());
+                    if (!vm.callValue(vm.peek(argCount), argCount)) {
+                        return error.RuntimeError;
+                    }
+                    frame = &vm.frames[vm.frameCount - 1];
+                },
                 .op_return => {
-                    return;
+                    const result = vm.pop();
+                    vm.frameCount -= 1;
+                    if (vm.frameCount == 0) {
+                        _ = vm.pop();
+                        return;
+                    }
+                    vm.stackTop = frame.base;
+                    vm.push(result);
+                    // std.debug.print("return_value=", .{});
+                    // value.printValueLn(result);
+                    // std.debug.print("current stack:\n", .{});
+                    frame = &vm.frames[vm.frameCount - 1];
                 },
                 .op_quit => {
                     std.debug.print("Bye~\n", .{});

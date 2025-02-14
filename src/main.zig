@@ -11,12 +11,13 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var chunk = Chunk.init(allocator);
-    defer chunk.deinit();
+    // var chunk = Chunk.init(allocator);
+    // defer chunk.deinit();
     var table = Table.init(allocator);
     defer table.deinit();
     var collector = Collector.init(allocator,&table);
-    var vm = VM.init(&collector,&chunk);
+    defer collector.freeObjects();
+    var vm = VM.init(&collector);
     defer vm.deinit();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator,args);
@@ -48,7 +49,7 @@ fn runFile(vm:*VM,path:[]const u8)!void{
     const arena_alloc = arena.allocator();
 
     const source = try std.fs.cwd().readFileAlloc(arena_alloc,path,4096);
-    std.debug.print("source:\n{s}\n",.{source});
+    // std.debug.print("source:\n{s}\n",.{source});
     try vm.interpret(source);
 
 }

@@ -1,6 +1,7 @@
 const std = @import("std");
 const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
+const ObjFunction = @import("object.zig").ObjFunction;
 const printObj = @import("object.zig").printObject;
 
 pub const ValueType = enum {
@@ -35,18 +36,24 @@ pub const Value = struct {
     pub fn is_string(value: Value) bool {
         return value.as_obj().type == .obj_string;
     }
-    pub fn as_obj(value: Value) *Obj {
+    pub fn is_function(value:Value)bool{
+        return value.as_obj().type == .obj_function;
+    }
+    pub inline fn as_obj(value: Value) *Obj {
         return value.as.obj;
     }
     pub fn is_obj(value: Value) bool {
         return value.type == .val_obj;
     }
     pub fn as_objString(value: Value) *ObjString {
-        const objStr: *ObjString = @alignCast(@fieldParentPtr("obj", value.as_obj()));
-        return objStr;
+        return value.as_obj().toObjString();
     }
     pub fn as_string(value: Value) []u8 {
         return as_objString(value).chars;
+    }
+    pub fn as_function(value:Value)*ObjFunction{
+        return value.as_obj().toObjFunction();
+
     }
 };
 pub const ValueArray = std.ArrayList(Value);

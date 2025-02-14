@@ -30,6 +30,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
         },
         .op_get_local,
         .op_set_local,
+        .op_call,
         => {
             return byteInstruction(@tagName(instruction), chunk, offset);
         },
