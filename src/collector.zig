@@ -1,18 +1,17 @@
 const std = @import("std");
-const mem = std.mem;
 const Collector = @This();
 const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
 const ObjFunction = @import("object.zig").ObjFunction;
-const common = @import("common.zig");
+const Chunk = @import("chunk.zig");
 const hashString = @import("object.zig").hashString;
 const Table = @import("table.zig");
 const nil_val = @import("value.zig").nil_val;
-allocator: mem.Allocator,
+allocator: std.mem.Allocator,
 objects: ?*Obj,
 table: *Table,
 
-pub fn init(allocator: mem.Allocator, table: *Table) Collector {
+pub fn init(allocator: std.mem.Allocator, table: *Table) Collector {
     return .{ .allocator = allocator, .objects = null, .table = table };
 }
 pub fn allocateObject(collector: *Collector, comptime T: type) *Obj {
@@ -31,7 +30,7 @@ pub fn allocateFunction(collector: *Collector) *ObjFunction {
     const objFunc = collector.allocateObject(ObjFunction).toObjFunction();
     objFunc.arity = 0;
     objFunc.name = null;
-    objFunc.chunk = common.Chunk.init(collector.allocator);
+    objFunc.chunk = Chunk.init(collector.allocator);
     return objFunc;
 }
 pub fn allocateObjString(collector: *Collector, str: []const u8, hash: u32) *ObjString {

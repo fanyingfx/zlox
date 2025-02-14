@@ -16,8 +16,8 @@ const Obj = @import("object.zig").Obj;
 const Collector = @import("collector.zig");
 const Table = @import("table.zig");
 const Compiler = @import("compiler.zig").Compiler;
-const Chunk = @import("common.zig").Chunk;
-const OpCode = @import("common.zig").OpCode;
+const Chunk = @import("chunk.zig");
+const OpCode = @import("opCode.zig").OpCode;
 const value = @import("value.zig");
 const Value = value.Value;
 

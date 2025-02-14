@@ -1,8 +1,8 @@
 const std = @import("std");
 const config = @import("config");
 const Scanner = @import("scanner.zig").Scanner;
-const Chunk = @import("common.zig").Chunk;
-const OpCode = @import("common.zig").OpCode;
+const Chunk = @import("chunk.zig");
+const OpCode = @import("opCode.zig").OpCode;
 const Value = @import("value.zig").Value;
 const Token = @import("scanner.zig").Token;
 const TokenType = @import("scanner.zig").TokenType;
@@ -123,11 +123,7 @@ pub const ParserContext = struct {
         parser.emitByte(byte);
     }
     fn emitOp(parser: *ParserContext, op: OpCode) void {
-        parser.currentChunk().writeOp(op, parser.previous.line);
-    }
-    fn emitOps(parser: *ParserContext, op1: OpCode, op2: OpCode) void {
-        parser.emitOp(op1);
-        parser.emitOp(op2);
+        parser.currentChunk().write(op, parser.previous.line);
     }
     fn emitReturn(parser: *ParserContext) void {
         parser.emitOp(.op_nil);
@@ -135,15 +131,14 @@ pub const ParserContext = struct {
     }
     pub fn endCompiler(parser: *ParserContext) *ObjFunction {
         parser.emitReturn();
-        const function_ = parser.currentCompiler.?.function;
+        const func = parser.currentCompiler.?.function;
         if (comptime config.enable_debug) {
             const debug = @import("debug.zig");
-            // std.debug.print("{any}\n")
-            const name = if (function_.name) |name| name.chars else "<script>";
+            const name = if (func.name) |name| name.chars else "<script>";
             debug.disassembleChunk(parser.currentChunk(), name);
         }
         parser.currentCompiler = parser.currentCompiler.?.enclosing;
-        return function_;
+        return func;
     }
 
     pub fn expression(parser: *ParserContext) Err!void {
@@ -285,12 +280,12 @@ pub const ParserContext = struct {
         const prec = getPrecedence(operatorType);
         try parser.parsePrecedence(prec.inc());
         switch (operatorType) {
-            .tok_bang_equal => parser.emitOps(.op_equal, .op_not),
+            .tok_bang_equal => parser.emitBytes(.op_equal, OpCode.op_not.toU8()),
             .tok_equal_equal => parser.emitOp(.op_equal),
             .tok_greater => parser.emitOp(.op_greater),
-            .tok_greater_equal => parser.emitOps(.op_less, .op_not),
+            .tok_greater_equal => parser.emitBytes(.op_less, OpCode.op_not.toU8()),
             .tok_less => parser.emitOp(.op_less),
-            .tok_less_equal => parser.emitOps(.op_greater, .op_not),
+            .tok_less_equal => parser.emitBytes(.op_greater, OpCode.op_not.toU8()),
             .tok_plus => parser.emitOp(.op_add),
             .tok_minus => parser.emitOp(.op_substract),
             .tok_star => parser.emitOp(.op_multiply),
@@ -372,8 +367,8 @@ pub const ParserContext = struct {
         try parser.consume(.tok_right_paren, "Expect ')'");
         try parser.consume(.tok_left_brace, "Expect '}'");
         try parser.block();
-        const function_ = parser.endCompiler();
-        parser.emitBytes(.op_constant, parser.makeConst(function_.obj_val()));
+        const func = parser.endCompiler();
+        parser.emitBytes(.op_constant, parser.makeConst(func.obj_val()));
     }
 
     fn varDeclaration(parser: *ParserContext) Err!void {
