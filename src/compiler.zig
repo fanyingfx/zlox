@@ -1,8 +1,8 @@
 const std = @import("std");
 const config = @import("config");
 const Scanner = @import("scanner.zig").Scanner;
-const Chunk = @import("common.zig").Chunk;
-const OpCode = @import("common.zig").OpCode;
+const Chunk = @import("chunk.zig");
+const OpCode = @import("opCode.zig").OpCode;
 const Value = @import("value.zig").Value;
 const Token = @import("scanner.zig").Token;
 const TokenType = @import("scanner.zig").TokenType;
@@ -135,15 +135,14 @@ pub const ParserContext = struct {
     }
     pub fn endCompiler(parser: *ParserContext) *ObjFunction {
         parser.emitReturn();
-        const function_ = parser.currentCompiler.?.function;
+        const func = parser.currentCompiler.?.function;
         if (comptime config.enable_debug) {
             const debug = @import("debug.zig");
-            // std.debug.print("{any}\n")
-            const name = if (function_.name) |name| name.chars else "<script>";
+            const name = if (func.name) |name| name.chars else "<script>";
             debug.disassembleChunk(parser.currentChunk(), name);
         }
         parser.currentCompiler = parser.currentCompiler.?.enclosing;
-        return function_;
+        return func;
     }
 
     pub fn expression(parser: *ParserContext) Err!void {
@@ -372,8 +371,8 @@ pub const ParserContext = struct {
         try parser.consume(.tok_right_paren, "Expect ')'");
         try parser.consume(.tok_left_brace, "Expect '}'");
         try parser.block();
-        const function_ = parser.endCompiler();
-        parser.emitBytes(.op_constant, parser.makeConst(function_.obj_val()));
+        const func = parser.endCompiler();
+        parser.emitBytes(.op_constant, parser.makeConst(func.obj_val()));
     }
 
     fn varDeclaration(parser: *ParserContext) Err!void {

@@ -65,9 +65,6 @@ pub fn valuesEqual(a: Value, b: Value) bool {
         .val_number => a.as_number() == b.as_number(),
         .val_obj => a.as_obj() == b.as_obj(),
 
-        // const aString = a.as_string();
-        // const bString = b.as_string();
-        // return std.mem.eql(u8,aString,bString);
     };
 }
 pub fn printValue(v: Value) void {
