@@ -25,14 +25,34 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
         .op_define_global,
         .op_get_global,
         .op_set_global,
+        .op_close_upvalue,
         => {
             return constantInstruction(@tagName(instruction), chunk, offset);
         },
         .op_get_local,
         .op_set_local,
         .op_call,
+        .op_get_upvalue,
+        .op_set_upvalue,
         => {
             return byteInstruction(@tagName(instruction), chunk, offset);
+        },
+        .op_closure => {
+            var _offset: usize = offset + 1;
+            const constant: usize = @intCast(chunk.code.items[_offset]);
+            _offset += 1;
+            std.debug.print("{s:<16} {d:4} ", .{ "op_closure", constant });
+            chunk.constants.items[constant].printValueLn();
+            const function = chunk.constants.items[constant].as_function();
+            var j: usize = 0;
+            while (j < function.upvalueCount) : (j += 1) {
+                const isLocal = chunk.code.items[_offset];
+                _offset += 1;
+                const index = chunk.code[_offset];
+                _offset += 1;
+                std.debug.print("{d:4}      |                     {s} {d}\n", .{ _offset - 2, if (isLocal) "local" else "upvalue", index });
+            }
+            return _offset;
         },
         .op_jump_if_false,
         .op_jump,

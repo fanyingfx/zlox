@@ -2,6 +2,7 @@ const std = @import("std");
 const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
 const ObjFunction = @import("object.zig").ObjFunction;
+const ObjClosure = @import("object.zig").ObjClosure;
 const printObj = @import("object.zig").printObject;
 
 pub const ValueType = enum {
@@ -18,26 +19,29 @@ pub const Value = struct {
         number: f64,
         obj: *Obj,
     },
-    pub fn as_bool(value: Value) bool {
+    pub fn as_bool(value: *const Value) bool {
         return value.as.boolean;
     }
-    pub fn as_number(value: Value) f64 {
+    pub fn as_number(value: *const Value) f64 {
         return value.as.number;
     }
-    pub fn is_bool(value: Value) bool {
+    pub fn is_bool(value: *const Value) bool {
         return value.type == .val_bool;
     }
-    pub fn is_nil(value: Value) bool {
+    pub fn is_nil(value: *const Value) bool {
         return value.type == .val_nil;
     }
-    pub fn is_number(value: Value) bool {
+    pub fn is_number(value: *const Value) bool {
         return value.type == .val_number;
     }
-    pub fn is_string(value: Value) bool {
+    pub fn is_string(value: * const Value) bool {
         return value.as_obj().type == .obj_string;
     }
-    pub fn is_function(value: Value) bool {
+    pub fn is_function(value: * const Value) bool {
         return value.as_obj().type == .obj_function;
+    }
+    pub fn is_closure(value:*const Value)bool{
+        return value.as_obj().type == .obj_closure;
     }
     pub fn as_obj(value: Value) *Obj {
         return value.as.obj;
@@ -45,14 +49,21 @@ pub const Value = struct {
     pub fn is_obj(value: Value) bool {
         return value.type == .val_obj;
     }
-    pub fn as_objString(value: Value) *ObjString {
-        return value.as_obj().toObjString();
+    // pub fn as_objString(value: Value) *ObjString {
+    //     return value.as_obj().toObjString();
+    // }
+    pub fn objTo(value:Value,comptime T:type)*T{
+        return value.as_obj().to(T);
     }
     pub fn as_string(value: Value) []u8 {
-        return as_objString(value).chars;
+        return value.objTo(ObjString).chars;
     }
     pub fn as_function(value: Value) *ObjFunction {
-        return value.as_obj().toObjFunction();
+        return value.objTo(ObjFunction);
+    }
+    pub fn as_closure(value:*const Value)*ObjClosure{
+        return value.objTo(ObjClosure);
+
     }
     pub fn printValue(v: Value) void {
         switch (v.type) {

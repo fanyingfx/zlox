@@ -39,13 +39,19 @@ const ParseFn = *const fn (*ParserContext) Err!void;
 const UINT8_COUNT = std.math.maxInt(u8) + 1;
 const Local = struct {
     name: Token,
+    isCaptured: bool,
     depth: isize,
 };
 const FunctionType = enum { function, script };
+pub const Upvalue = struct {
+    index: usize,
+    isLocal: bool,
+};
 pub const Compiler = struct {
     enclosing: ?*Compiler,
     locals: [UINT8_COUNT]Local,
     localCount: usize,
+    upvalues: [UINT8_COUNT]Upvalue,
     scopeDepth: isize,
     function: *ObjFunction,
     type_: FunctionType,
@@ -56,6 +62,7 @@ pub const Compiler = struct {
         const local = &current.locals[current.localCount];
         local.name = name;
         local.depth = -1; //current.scopeDepth;
+        local.isCaptured = false;
         current.localCount += 1;
     }
     pub fn markInitialized(current: *Compiler) void {
@@ -84,6 +91,7 @@ pub const ParserContext = struct {
     fn initCompiler(parser: *ParserContext, compiler: *Compiler, typ: FunctionType) void {
         compiler.* = .{
             .enclosing = parser.currentCompiler,
+            .upvalues = undefined,
             .locals = undefined,
             .localCount = 0,
             .scopeDepth = 0,
@@ -102,6 +110,7 @@ pub const ParserContext = struct {
         local.depth = 0;
         local.name.start = 0;
         local.name.length = 0;
+        local.isCaptured = false;
     }
     pub fn advance(parser: *ParserContext) void {
         parser.previous = parser.current;
@@ -235,10 +244,14 @@ pub const ParserContext = struct {
     fn namedVariable(parser: *ParserContext, name: Token, canAssign: bool) Err!void {
         var getOp: OpCode = undefined;
         var setOp: OpCode = undefined;
-        var arg = parser.resolveLocal(name);
+        var arg = parser.resolveLocal(parser.currentCompiler.?, name);
         if (arg != null) {
             getOp = .op_get_local;
             setOp = .op_set_local;
+        } else if (parser.resolveUpvalue(parser.currentCompiler.?, name)) |arg_| {
+            arg = arg_;
+            getOp = .op_get_upvalue;
+            setOp = .op_set_upvalue;
         } else {
             arg = parser.identifierConstant(name);
             getOp = .op_get_global;
@@ -368,7 +381,12 @@ pub const ParserContext = struct {
         try parser.consume(.tok_left_brace, "Expect '}'");
         try parser.block();
         const func = parser.endCompiler();
-        parser.emitBytes(.op_constant, parser.makeConst(func.toValue()));
+        parser.emitBytes(.op_closure, parser.makeConst(func.toValue()));
+        var i: usize = 0;
+        while (i < func.upvalueCount) : (i += 1) {
+            parser.emitByte(if (compiler.upvalues[i].isLocal) 1 else 0);
+            parser.emitByte(@intCast(compiler.upvalues[i].index));
+        }
     }
 
     fn varDeclaration(parser: *ParserContext) Err!void {
@@ -431,7 +449,11 @@ pub const ParserContext = struct {
         const current = parser.currentCompiler.?;
         current.scopeDepth -= 1;
         while (current.localCount > 0 and current.locals[current.localCount - 1].depth > current.scopeDepth) {
-            parser.emitOp(.op_pop);
+            if (current.locals[current.localCount - 1].isCaptured) {
+                parser.emitOp(.op_close_upvalue);
+            } else {
+                parser.emitOp(.op_pop);
+            }
             current.localCount -= 1;
         }
     }
@@ -537,8 +559,8 @@ pub const ParserContext = struct {
         return @intCast(constant);
     }
 
-    pub fn resolveLocal(parser: *ParserContext, name: Token) ?u8 {
-        const compiler = parser.currentCompiler.?;
+    pub fn resolveLocal(parser: *ParserContext, compiler: *Compiler, name: Token) ?u8 {
+        // const compiler = parser.currentCompiler.?;
         if (compiler.localCount <= 0) return null;
         var i = compiler.localCount - 1;
         while (i >= 0) : (i -= 1) {
@@ -552,6 +574,35 @@ pub const ParserContext = struct {
             if (i == 0) break;
         }
         return null;
+    }
+    pub fn resolveUpvalue(parser: *ParserContext, compiler: *Compiler, name: Token) ?u8 {
+        // const compiler = parser.currentCompiler.?;
+        if (compiler.enclosing == null) return null;
+        const local_opt = parser.resolveLocal(compiler.enclosing.?, name);
+        if (local_opt) |local| {
+            compiler.enclosing.?.locals[local].isCaptured = true;
+            return addUpvalue(parser.currentCompiler.?, local, true);
+        }
+        return null;
+    }
+    fn addUpvalue(compiler: *Compiler, index: u8, isLocal: bool) u8 {
+        // const compiler = parser.currentCompiler.?;
+        const upvalueCount = compiler.function.upvalueCount;
+        var i: usize = 0;
+        while (i < upvalueCount) : (i += 1) {
+            const upvalue = &compiler.upvalues[i];
+            if (upvalue.index == index and upvalue.isLocal == isLocal) {
+                return @intCast(i);
+            }
+        }
+        if (upvalueCount == UINT8_COUNT) {
+            std.debug.panic("Too many closure variables in function.\n", .{});
+        }
+        compiler.upvalues[upvalueCount].isLocal = isLocal;
+        compiler.upvalues[upvalueCount].index = index;
+        defer compiler.function.upvalueCount += 1;
+
+        return @intCast(compiler.function.upvalueCount);
     }
     fn tokenString(parser: *const ParserContext, tok: Token) []const u8 {
         return parser.scanner.source[tok.start .. tok.start + tok.length];

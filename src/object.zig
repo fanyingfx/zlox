@@ -5,22 +5,20 @@ const Value = @import("value.zig").Value;
 pub const ObjType = enum {
     obj_string,
     obj_function,
+    obj_closure,
+    obj_upvalue,
 };
 pub const Obj = struct {
     type: ObjType,
     next: ?*Obj,
-    pub fn toObjString(obj: *Obj) *ObjString {
-        const objStr: *ObjString = @alignCast(@fieldParentPtr("obj", obj));
-        return objStr;
-    }
-    pub fn toObjFunction(obj: *Obj) *ObjFunction {
-        const objFunc: *ObjFunction = @alignCast(@fieldParentPtr("obj", obj));
-        return objFunc;
+    pub fn to(obj: *Obj, comptime T: type) *T {
+        return @alignCast(@fieldParentPtr("obj", obj));
     }
 };
 pub const ObjFunction = struct {
     obj: Obj,
     arity: usize,
+    upvalueCount: usize,
     chunk: Chunk,
     name: ?*ObjString,
     pub fn deinit(self: *ObjFunction, allocator: std.mem.Allocator) void {
@@ -33,6 +31,34 @@ pub const ObjFunction = struct {
 
     pub fn toValue(objFunction: *ObjFunction) Value {
         return .{ .type = .val_obj, .as = .{ .obj = &objFunction.obj } };
+    }
+};
+pub const ObjClosure = struct {
+    obj: Obj,
+    function: *ObjFunction,
+    upvalues:[]?*ObjUpvalue,
+    upvalueCount:usize,
+    pub fn deinit(self: *ObjClosure, allocator: std.mem.Allocator) void {
+        allocator.free(self.upvalues);
+        allocator.destroy(self);
+    }
+    pub fn asObjPtr(objClosure: *ObjClosure) *Obj {
+        return &objClosure.obj;
+    }
+    pub fn toValue(objClosure: *ObjClosure) Value {
+        return .{ .type = .val_obj, .as = .{ .obj = &objClosure.obj } };
+    }
+};
+pub const ObjUpvalue = struct {
+    obj: Obj,
+    location: *Value,
+    closed:Value,
+    next:?*ObjUpvalue,
+    pub fn asObjPtr(objUpvalue: *ObjUpvalue) *Obj {
+        return &objUpvalue.obj;
+    }
+    pub fn deinit(self: *ObjUpvalue, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
     }
 };
 pub const ObjString = struct {
@@ -65,6 +91,8 @@ pub fn printObject(value: Value) void {
     switch (value.as_obj().type) {
         .obj_string => std.debug.print("{s}", .{value.as_string()}),
         .obj_function => printFunction(value.as_function()),
+        .obj_closure => printFunction(value.as_closure().function),
+        .obj_upvalue => std.debug.print("upvalue",.{}),
     }
 }
 fn printFunction(function: *ObjFunction) void {
