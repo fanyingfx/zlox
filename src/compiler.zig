@@ -227,7 +227,7 @@ pub const ParserContext = struct {
         const prev_tok = parser.previous;
         const str = parser.scanner.source[prev_tok.start + 1 .. prev_tok.start + prev_tok.length - 1];
         const objString = parser.collector.copyString(str);
-        parser.emitConst(objString.obj_val());
+        parser.emitConst(objString.toValue());
     }
     fn variable(parser: *ParserContext, canAssign: bool) Err!void {
         try parser.namedVariable(parser.previous, canAssign);
@@ -368,7 +368,7 @@ pub const ParserContext = struct {
         try parser.consume(.tok_left_brace, "Expect '}'");
         try parser.block();
         const func = parser.endCompiler();
-        parser.emitBytes(.op_constant, parser.makeConst(func.obj_val()));
+        parser.emitBytes(.op_constant, parser.makeConst(func.toValue()));
     }
 
     fn varDeclaration(parser: *ParserContext) Err!void {
@@ -391,7 +391,7 @@ pub const ParserContext = struct {
     }
     fn identifierConstant(parser: *ParserContext, name: Token) u8 {
         const objStr = parser.collector.copyString(parser.tokenString(name));
-        return parser.makeConst(objStr.obj_val());
+        return parser.makeConst(objStr.toValue());
     }
     fn declareVariable(parser: *ParserContext) void {
         const current = parser.currentCompiler.?;

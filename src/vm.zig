@@ -91,9 +91,9 @@ pub const VM = struct {
     }
     fn callValue(vm: *VM, callee: Value, argCount: usize) !void {
         if (callee.is_obj()) {
-            switch (callee.as_obj().type) {
-                .obj_function => {
-                    return vm.call(callee.as_function(), argCount);
+            switch (callee.as_obj().*) {
+                .function =>|*func| {
+                    return vm.call(func, argCount);
                 },
                 else => {},
             }
@@ -135,7 +135,7 @@ pub const VM = struct {
         defer chunk.deinit();
         const function = try compiler.compile(vm.collector, source, &chunk);
         vm.chunk = &chunk;
-        vm.push(function.obj_val());
+        vm.push(function.toValue());
         _ = vm.call(function, 0);
         return vm.run();
     }
@@ -209,7 +209,7 @@ pub const VM = struct {
                     const a = vm.pop().as_string();
                     const new_str = std.fmt.bufPrint(&buf, "{s}{s}", .{ a, b }) catch unreachable;
                     const result = vm.collector.copyString(new_str);
-                    vm.push(result.obj_val());
+                    vm.push(result.toValue());
                 },
                 .op_less, .op_greater => {
                     const op = instruction;

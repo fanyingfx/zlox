@@ -34,10 +34,10 @@ pub const Value = struct {
         return value.type == .val_number;
     }
     pub fn is_string(value: Value) bool {
-        return value.as_obj().type == .obj_string;
+        return value.as_obj().* == Obj.string;
     }
     pub fn is_function(value:Value)bool{
-        return value.as_obj().type == .obj_function;
+        return value.as_obj().* == Obj.function;
     }
     pub inline fn as_obj(value: Value) *Obj {
         return value.as.obj;
@@ -46,13 +46,13 @@ pub const Value = struct {
         return value.type == .val_obj;
     }
     pub fn as_objString(value: Value) *ObjString {
-        return value.as_obj().toObjString();
+        return &value.as_obj().string;
     }
     pub fn as_string(value: Value) []u8 {
         return as_objString(value).chars;
     }
     pub fn as_function(value:Value)*ObjFunction{
-        return value.as_obj().toObjFunction();
+        return &value.as_obj().function;
 
     }
 };
