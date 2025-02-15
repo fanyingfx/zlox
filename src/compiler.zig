@@ -6,9 +6,9 @@ const OpCode = @import("opCode.zig").OpCode;
 const Value = @import("value.zig").Value;
 const Token = @import("scanner.zig").Token;
 const TokenType = @import("scanner.zig").TokenType;
-const number_val = @import("value.zig").number_val;
-const nil_val = @import("value.zig").nil_val;
-const bool_val = @import("value.zig").bool_val;
+// const number_val = @import("value.zig").number_val;
+// const nil_val = @import("value.zig").nil_val;
+// const bool_val = @import("value.zig").bool_val;
 const Obj = @import("object.zig").Obj;
 const ObjString = @import("object.zig").ObjString;
 const ObjFunction = @import("object.zig").ObjFunction;
@@ -221,7 +221,7 @@ pub const ParserContext = struct {
         const num = std.fmt.parseFloat(f64, parser.tokenString(parser.previous)) catch {
             return error.CompilerError;
         };
-        parser.emitConst(number_val(num));
+        parser.emitConst(Value.number_val(num));
     }
     fn string(parser: *ParserContext) !void {
         const prev_tok = parser.previous;

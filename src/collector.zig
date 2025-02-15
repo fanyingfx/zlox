@@ -4,7 +4,7 @@ const Chunk = @import("chunk.zig");
 const ObjString = @import("object.zig").ObjString;
 const ObjFunction = @import("object.zig").ObjFunction;
 const hashString = @import("object.zig").hashString;
-const nil_val = @import("value.zig").nil_val;
+const Value = @import("value.zig").Value;
 const Table = @import("table.zig");
 const Collector = @This();
 
@@ -49,7 +49,7 @@ pub fn allocateObjString(collector: *Collector, str: []const u8, hash: u32) *Obj
     const objString = &collector.allocateObject(ObjString).string;
     objString.hash = hash;
     objString.chars = collector.allocator.dupe(u8, str) catch unreachable;
-    _ = collector.table.set(objString, nil_val());
+    _ = collector.table.set(objString, Value.nil);
     return objString;
 }
 pub fn copyString(collector: *Collector, str: []const u8) *ObjString {

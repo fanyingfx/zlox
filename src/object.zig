@@ -6,7 +6,7 @@ pub const Obj = union(enum) {
     string: ObjString,
     function: ObjFunction,
     pub fn toValue(obj: *Obj) Value {
-        return .{ .type = .val_obj, .as = .{ .obj = obj } };
+        return .{ .obj = obj };
     }
 };
 pub const ObjFunction = struct {
@@ -26,9 +26,6 @@ pub const ObjFunction = struct {
         return objFunction.asObj().toValue();
     }
 
-    // pub fn toValue(objFunction: *ObjFunction) Value {
-    //     return .{ .type = .val_obj, .as = .{ .obj = Obj{ .function = objFunction.* } } };
-    // }
 };
 pub const ObjString = struct {
     chars: []u8,
@@ -48,10 +45,6 @@ pub const ObjString = struct {
         return objString.asObj().toValue();
     }
 
-    // pub fn deinit(objString: *ObjString, allocator: std.mem.Allocator) void {
-    // allocator.free(objString.chars);
-    // allocator.destroy(objString);
-    // }
 };
 pub fn hashString(str: []const u8) u32 {
     var hash: u32 = 2_166_136_261;
@@ -61,11 +54,8 @@ pub fn hashString(str: []const u8) u32 {
     }
     return hash;
 }
-// pub inline fn isObjType(value: Value, type_: ObjType) bool {
-//     return value.is_obj() and value.as_obj().type == type_;
-// }
-pub fn printObject(value: Value) void {
-    switch (value.as_obj().*) {
+pub fn printObject(obj:*Obj) void {
+    switch (obj.*) {
         .string => |*s| std.debug.print("{s}", .{s.chars}),
         .function => |*func| printFunction(func),
     }

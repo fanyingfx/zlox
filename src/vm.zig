@@ -2,14 +2,14 @@ const std = @import("std");
 const config = @import("config");
 const debug = @import("debug.zig");
 const compiler = @import("compiler.zig");
-const as_bool = @import("value.zig").as_bool;
-const as_number = @import("value.zig").as_number;
-const number_val = @import("value.zig").number_val;
-const nil_val = @import("value.zig").nil_val;
-const bool_val = @import("value.zig").bool_val;
-const isFalsey = @import("value.zig").isFalsey;
-const ValueType = @import("value.zig").ValueType;
-const valuesEqual = @import("value.zig").valuesEqual;
+// const as_bool = @import("value.zig").as_bool;
+// const as_number = @import("value.zig").as_number;
+// const number_val = @import("value.zig").number_val;
+// const nil_val = @import("value.zig").nil_val;
+// const bool_val = @import("value.zig").bool_val;
+// const isFalsey = @import("value.zig").isFalsey;
+// const ValueType = @import("value.zig").ValueType;
+// const valuesEqual = @import("value.zig").valuesEqual;
 const ObjString = @import("object.zig").ObjString;
 const ObjFunction = @import("object.zig").ObjFunction;
 const Obj = @import("object.zig").Obj;
@@ -18,8 +18,8 @@ const Table = @import("table.zig");
 const Compiler = @import("compiler.zig").Compiler;
 const Chunk = @import("chunk.zig");
 const OpCode = @import("opCode.zig").OpCode;
-const value = @import("value.zig");
-const Value = value.Value;
+// const value = @import("value.zig");
+const Value = @import("value.zig").Value;
 
 const InterpretResult = error{
     CompileError,
@@ -42,12 +42,12 @@ const CallFrame = struct {
         buf[1] = frame.function.chunk.code.items[frame.ip - 1]; // low
         return std.mem.readInt(u16, &buf, .big);
     }
-    fn read_constant(frame: *CallFrame) value.Value {
+    fn read_constant(frame: *CallFrame) Value {
         const idx: usize = @intCast(frame.read_byte());
         return frame.function.chunk.constants.items[idx];
     }
     fn read_string(vm: *CallFrame) *ObjString {
-        return vm.read_constant().as_objString();
+        return &vm.read_constant().obj.string;
     }
 };
 
@@ -91,7 +91,7 @@ pub const VM = struct {
     }
     fn callValue(vm: *VM, callee: Value, argCount: usize) !void {
         if (callee.is_obj()) {
-            switch (callee.as_obj().*) {
+            switch (callee.obj.*) {
                 .function =>|*func| {
                     return vm.call(func, argCount);
                 },
@@ -124,7 +124,7 @@ pub const VM = struct {
             if (vm.stackTop == 0) return;
             var top = vm.stackTop - 1;
             while (top >= 0) {
-                value.printValueLn(vm.stack[top]);
+                Value.printValueLn(vm.stack[top]);
                 if (top == 0) break;
                 top -= 1;
             }
@@ -145,8 +145,8 @@ pub const VM = struct {
             vm.printStack("stack overflow");
             return error.RuntimeError;
         }
-        const b = vm.pop().as_number();
-        const a = vm.pop().as_number();
+        const b = vm.pop().number;
+        const a = vm.pop().number;
         const val = switch (typ) {
             f64 => switch (op) {
                 .op_add => a + b,
@@ -172,7 +172,7 @@ pub const VM = struct {
                 var slot: usize = 0;
                 while (slot < vm.stackTop) : (slot += 1) {
                     std.debug.print("[ ", .{});
-                    value.printValue(vm.stack[slot]);
+                    Value.printValue(vm.stack[slot]);
                     std.debug.print(" ]", .{});
                 }
                 std.debug.print("\n", .{});
@@ -186,18 +186,18 @@ pub const VM = struct {
                     const constant = frame.read_constant();
                     vm.push(constant);
                 },
-                .op_nil => vm.push(nil_val()),
-                .op_true => vm.push(bool_val(true)),
-                .op_false => vm.push(bool_val(false)),
+                .op_nil => vm.push(Value.nil),
+                .op_true => vm.push(Value.bool_val(true)),
+                .op_false => vm.push(Value.bool_val(false)),
                 .op_equal => {
                     const b = vm.pop();
                     const a = vm.pop();
-                    vm.push(bool_val(valuesEqual(a, b)));
+                    vm.push(Value.bool_val(a.eql (b)));
                 },
-                .op_not => vm.push(bool_val(isFalsey(vm.pop()))),
+                .op_not => vm.push(Value.bool_val(vm.pop().isFalsey())),
                 .op_add, .op_substract, .op_multiply, .op_divide => {
                     const op = instruction;
-                    try vm.binary_op(f64, number_val, op);
+                    try vm.binary_op(f64, Value.number_val, op);
                 },
                 .op_concat => {
                     if (!vm.peek(0).is_string() or !vm.peek(1).is_string()) {
@@ -205,29 +205,29 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
                     var buf: [1024]u8 = undefined;
-                    const b = vm.pop().as_string();
-                    const a = vm.pop().as_string();
-                    const new_str = std.fmt.bufPrint(&buf, "{s}{s}", .{ a, b }) catch unreachable;
+                    const b = vm.pop().obj.string;
+                    const a = vm.pop().obj.string;
+                    const new_str = std.fmt.bufPrint(&buf, "{s}{s}", .{ a.chars, b.chars }) catch unreachable;
                     const result = vm.collector.copyString(new_str);
                     vm.push(result.toValue());
                 },
                 .op_less, .op_greater => {
                     const op = instruction;
-                    try vm.binary_op(bool, bool_val, op);
+                    try vm.binary_op(bool, Value.bool_val, op);
                 },
                 .op_negate => {
                     if (!vm.peek(0).is_number()) {
                         std.debug.print("Operand must b a number.\n", .{});
                         return error.RuntimeError;
                     }
-                    vm.push(number_val(-vm.pop().as_number()));
+                    vm.push(Value.number_val(-vm.pop().number));
                 },
                 .op_print => {
-                    value.printValueLn(vm.pop());
+                    Value.printValueLn(vm.pop());
                 },
                 .op_jump_if_false => {
                     const offset = frame.read_u16();
-                    if (!vm.peek(0).as_bool()) {
+                    if (!vm.peek(0).boolean) {
                         frame.ip += offset;
                     }
                 },

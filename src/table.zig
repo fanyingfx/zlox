@@ -1,7 +1,7 @@
 const std = @import("std");
 const Table = @This();
-const nil_val = @import("value.zig").nil_val;
-const bool_val = @import("value.zig").bool_val;
+// const nil_val = @import("value.zig").nil_val;
+// const bool_val = @import("value.zig").bool_val;
 const Value = @import("value.zig").Value;
 const printValueLn = @import("value.zig").printValueLn;
 const ObjString = @import("object.zig").ObjString;
@@ -38,7 +38,7 @@ fn grow(table: *Table) void {
     table.entries = table.allocator.alloc(Entry, new_cap) catch unreachable;
     for (table.entries) |*entry| {
         entry.key = null;
-        entry.value = nil_val();
+        entry.value = Value.nil;
     }
     table.count = 0;
     for (old_entries) |entry| {
@@ -91,7 +91,7 @@ pub fn delete(table: *Table, key: *ObjString) bool {
     const entry = table.findEntry(key);
     if (entry.key == null) return false;
     entry.key = null;
-    entry.value = bool_val(true);
+    entry.value = Value.bool_val(true);
     return true;
 }
 pub fn findString(table: *Table, str: []const u8, hash: u32) ?*ObjString {
@@ -142,7 +142,7 @@ test "interned string" {
     defer obj1.deinit(allocator);
     var table = Table.init(allocator);
     defer table.deinit();
-    try std.testing.expect(table.set(obj1, nil_val()));
+    try std.testing.expect(table.set(obj1, Value.nil));
     const obj2 = table.findString(raw2, hashString(raw2)).?;
     try std.testing.expect(obj1 == obj2);
 }
