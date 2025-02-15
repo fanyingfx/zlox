@@ -16,7 +16,7 @@ pub fn init(allocator: std.mem.Allocator, table: *Table) Collector {
 }
 pub fn allocateObject(collector: *Collector, comptime T: type) *Obj {
     const objectRaw = collector.allocator.create(T) catch unreachable;
-    const obj: *Obj = objectRaw.obj_ptr();
+    const obj: *Obj = objectRaw.asObjPtr();
     obj.type = switch (T) {
         ObjString => .obj_string,
         ObjFunction => .obj_function,

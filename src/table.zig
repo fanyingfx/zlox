@@ -117,13 +117,21 @@ pub fn addAll(from: *Table, to: *Table) void {
         }
     }
 }
+
+fn __allocateObjString(allocator: std.mem.Allocator, str: []const u8) *ObjString {
+    const objString = allocator.create(ObjString) catch unreachable;
+    const allocateStr = allocator.dupe(u8, str) catch unreachable;
+    const hash = hashString(str);
+    objString.* = .{ .obj = .{ .type = .obj_string, .next = null }, .chars = allocateStr, .hash = hash };
+    return objString;
+}
 test "basic set/get" {
     const allocator = std.testing.allocator;
     const raw1 = "k1";
     const raw2 = "k2";
-    const k1 = ObjString.allocateObjString(allocator, raw1);
+    const k1 = __allocateObjString(allocator, raw1);
     defer k1.deinit(allocator);
-    const k2 = ObjString.allocateObjString(allocator, raw2);
+    const k2 = __allocateObjString(allocator, raw2);
     defer k2.deinit(allocator);
     var table = Table.init(allocator);
     defer table.deinit();
@@ -138,7 +146,7 @@ test "interned string" {
     const allocator = std.testing.allocator;
     const raw1 = "k1";
     const raw2 = "k1";
-    const obj1 = ObjString.allocateObjString(allocator, raw1);
+    const obj1 = __allocateObjString(allocator, raw1);
     defer obj1.deinit(allocator);
     var table = Table.init(allocator);
     defer table.deinit();

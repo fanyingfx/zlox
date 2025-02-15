@@ -1,6 +1,5 @@
 const std = @import("std");
 const Chunk = @import("chunk.zig");
-
 const Value = @import("value.zig").Value;
 
 pub const ObjType = enum {
@@ -24,18 +23,15 @@ pub const ObjFunction = struct {
     arity: usize,
     chunk: Chunk,
     name: ?*ObjString,
-    pub fn deinit(self: *ObjFunction,allocator:std.mem.Allocator) void {
+    pub fn deinit(self: *ObjFunction, allocator: std.mem.Allocator) void {
         self.chunk.deinit();
         allocator.destroy(self);
-        // if (self.name) |name| {
-        //     name.deinit(allocator);
-        // }
     }
-    pub fn obj_ptr(objFunc: *ObjFunction) *Obj {
+    pub fn asObjPtr(objFunc: *ObjFunction) *Obj {
         return &objFunc.obj;
     }
 
-    pub fn obj_val(objFunction: *ObjFunction) Value {
+    pub fn toValue(objFunction: *ObjFunction) Value {
         return .{ .type = .val_obj, .as = .{ .obj = &objFunction.obj } };
     }
 };
@@ -43,18 +39,11 @@ pub const ObjString = struct {
     obj: Obj,
     chars: []u8,
     hash: u32,
-    pub fn obj_val(objString: *ObjString) Value {
+    pub fn toValue(objString: *ObjString) Value {
         return .{ .type = .val_obj, .as = .{ .obj = &objString.obj } };
     }
-    pub fn obj_ptr(objString: *ObjString) *Obj {
+    pub fn asObjPtr(objString: *ObjString) *Obj {
         return &objString.obj;
-    }
-    pub fn allocateObjString(allocator: std.mem.Allocator, str: []const u8) *ObjString {
-        const objString = allocator.create(ObjString) catch unreachable;
-        const allocateStr = allocator.dupe(u8, str) catch unreachable;
-        const hash = hashString(str);
-        objString.* = .{ .obj = .{ .type = .obj_string, .next = null }, .chars = allocateStr, .hash = hash };
-        return objString;
     }
     pub fn deinit(objString: *ObjString, allocator: std.mem.Allocator) void {
         allocator.free(objString.chars);
@@ -69,7 +58,7 @@ pub fn hashString(str: []const u8) u32 {
     }
     return hash;
 }
-pub inline fn isObjType(value: Value, type_: ObjType) bool {
+pub fn isObjType(value: Value, type_: ObjType) bool {
     return value.is_obj() and value.as_obj().type == type_;
 }
 pub fn printObject(value: Value) void {

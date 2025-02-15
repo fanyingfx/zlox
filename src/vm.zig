@@ -18,8 +18,7 @@ const Table = @import("table.zig");
 const Compiler = @import("compiler.zig").Compiler;
 const Chunk = @import("chunk.zig");
 const OpCode = @import("opCode.zig").OpCode;
-const value = @import("value.zig");
-const Value = value.Value;
+const Value = @import("value.zig").Value;
 
 const InterpretResult = error{
     CompileError,
@@ -42,7 +41,7 @@ const CallFrame = struct {
         buf[1] = frame.function.chunk.code.items[frame.ip - 1]; // low
         return std.mem.readInt(u16, &buf, .big);
     }
-    fn read_constant(frame: *CallFrame) value.Value {
+    fn read_constant(frame: *CallFrame)Value {
         const idx: usize = @intCast(frame.read_byte());
         return frame.function.chunk.constants.items[idx];
     }
@@ -78,8 +77,8 @@ pub const VM = struct {
     pub fn deinit(vm: *VM) void {
         vm.globals.deinit();
     }
-    fn push(vm: *VM, value_: Value) void {
-        vm.stack[vm.stackTop] = value_;
+    fn push(vm: *VM, value: Value) void {
+        vm.stack[vm.stackTop] = value;
         vm.stackTop += 1;
     }
     fn pop(vm: *VM) Value {
@@ -112,7 +111,6 @@ pub const VM = struct {
         frame.ip = 0;
         vm.base = vm.stackTop - argCount - 1;
         frame.slots = vm.stack[vm.base..];
-        // return true;
     }
     fn resetStack(vm: *VM) void {
         vm.stackTop = 0;
@@ -124,7 +122,7 @@ pub const VM = struct {
             if (vm.stackTop == 0) return;
             var top = vm.stackTop - 1;
             while (top >= 0) {
-                value.printValueLn(vm.stack[top]);
+                vm.stack[top].printValueLn();
                 if (top == 0) break;
                 top -= 1;
             }
@@ -135,7 +133,7 @@ pub const VM = struct {
         defer chunk.deinit();
         const function = try compiler.compile(vm.collector, source, &chunk);
         vm.chunk = &chunk;
-        vm.push(function.obj_val());
+        vm.push(function.toValue());
         _ = vm.call(function, 0);
         return vm.run();
     }
@@ -172,7 +170,7 @@ pub const VM = struct {
                 var slot: usize = 0;
                 while (slot < vm.stackTop) : (slot += 1) {
                     std.debug.print("[ ", .{});
-                    value.printValue(vm.stack[slot]);
+                    vm.stack[slot].printValueLn();
                     std.debug.print(" ]", .{});
                 }
                 std.debug.print("\n", .{});
@@ -209,7 +207,7 @@ pub const VM = struct {
                     const a = vm.pop().as_string();
                     const new_str = std.fmt.bufPrint(&buf, "{s}{s}", .{ a, b }) catch unreachable;
                     const result = vm.collector.copyString(new_str);
-                    vm.push(result.obj_val());
+                    vm.push(result.toValue());
                 },
                 .op_less, .op_greater => {
                     const op = instruction;
@@ -223,7 +221,7 @@ pub const VM = struct {
                     vm.push(number_val(-vm.pop().as_number()));
                 },
                 .op_print => {
-                    value.printValueLn(vm.pop());
+                    vm.pop().printValueLn();
                 },
                 .op_jump_if_false => {
                     const offset = frame.read_u16();

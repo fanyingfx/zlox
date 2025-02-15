@@ -36,10 +36,10 @@ pub const Value = struct {
     pub fn is_string(value: Value) bool {
         return value.as_obj().type == .obj_string;
     }
-    pub fn is_function(value:Value)bool{
+    pub fn is_function(value: Value) bool {
         return value.as_obj().type == .obj_function;
     }
-    pub inline fn as_obj(value: Value) *Obj {
+    pub fn as_obj(value: Value) *Obj {
         return value.as.obj;
     }
     pub fn is_obj(value: Value) bool {
@@ -51,12 +51,22 @@ pub const Value = struct {
     pub fn as_string(value: Value) []u8 {
         return as_objString(value).chars;
     }
-    pub fn as_function(value:Value)*ObjFunction{
+    pub fn as_function(value: Value) *ObjFunction {
         return value.as_obj().toObjFunction();
-
+    }
+    pub fn printValue(v: Value) void {
+        switch (v.type) {
+            .val_number => std.debug.print("{d}", .{v.as_number()}),
+            .val_bool => std.debug.print("{}", .{v.as_bool()}),
+            .val_nil => std.debug.print("nil", .{}),
+            .val_obj => printObj(v),
+        }
+    }
+    pub fn printValueLn(v: Value) void {
+        printValue(v);
+        std.debug.print("\n", .{});
     }
 };
-pub const ValueArray = std.ArrayList(Value);
 pub fn valuesEqual(a: Value, b: Value) bool {
     if (a.type != b.type) return false;
     return switch (a.type) {
@@ -64,21 +74,10 @@ pub fn valuesEqual(a: Value, b: Value) bool {
         .val_nil => true,
         .val_number => a.as_number() == b.as_number(),
         .val_obj => a.as_obj() == b.as_obj(),
-
     };
 }
-pub fn printValue(v: Value) void {
-    switch (v.type) {
-        .val_number => std.debug.print("{d}", .{v.as_number()}),
-        .val_bool => std.debug.print("{}", .{v.as_bool()}),
-        .val_nil => std.debug.print("nil", .{}),
-        .val_obj => printObj(v),
-    }
-}
-pub fn printValueLn(v: Value) void {
-    printValue(v);
-    std.debug.print("\n", .{});
-}
+pub const ValueArray = std.ArrayList(Value);
+
 pub fn bool_val(value: bool) Value {
     return .{ .type = .val_bool, .as = .{ .boolean = value } };
 }
