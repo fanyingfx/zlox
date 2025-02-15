@@ -16,14 +16,20 @@ pub fn init(allocator: std.mem.Allocator) Chunk {
         .constants = value.ValueArray.init(allocator),
     };
 }
-pub fn write(self: *Chunk, byte: u8, line: usize) void {
-    self.code.append(byte) catch unreachable;
+pub fn write(self: *Chunk, byte: anytype, line: usize) void {
+    const byte_:u8=switch(@TypeOf(byte)){
+        u8=> byte,
+        OpCode=>@intFromEnum(byte),
+        else => unreachable
+    };
+    self.code.append(byte_) catch unreachable;
     self.lines.append(line) catch unreachable;
 }
-pub fn writeOp(self: *Chunk, opCode: OpCode, line: usize) void {
-    self.code.append(@intFromEnum(opCode)) catch unreachable;
-    self.lines.append(line) catch unreachable;
-}
+// pub fn writeOp(self: *Chunk, opCode: OpCode, line: usize) void {
+//     self.write(opCode,line);
+    // self.code.append(@intFromEnum(opCode)) catch unreachable;
+    // self.lines.append(line) catch unreachable;
+// }
 pub fn addConstant(self: *Chunk, value_: value.Value) usize {
     self.constants.append(value_) catch unreachable;
     return self.constants.items.len - 1;

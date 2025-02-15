@@ -123,11 +123,7 @@ pub const ParserContext = struct {
         parser.emitByte(byte);
     }
     fn emitOp(parser: *ParserContext, op: OpCode) void {
-        parser.currentChunk().writeOp(op, parser.previous.line);
-    }
-    fn emitOps(parser: *ParserContext, op1: OpCode, op2: OpCode) void {
-        parser.emitOp(op1);
-        parser.emitOp(op2);
+        parser.currentChunk().write(op, parser.previous.line);
     }
     fn emitReturn(parser: *ParserContext) void {
         parser.emitOp(.op_nil);
@@ -284,12 +280,12 @@ pub const ParserContext = struct {
         const prec = getPrecedence(operatorType);
         try parser.parsePrecedence(prec.inc());
         switch (operatorType) {
-            .tok_bang_equal => parser.emitOps(.op_equal, .op_not),
+            .tok_bang_equal => parser.emitBytes(.op_equal, OpCode.op_not.toU8()),
             .tok_equal_equal => parser.emitOp(.op_equal),
             .tok_greater => parser.emitOp(.op_greater),
-            .tok_greater_equal => parser.emitOps(.op_less, .op_not),
+            .tok_greater_equal => parser.emitBytes(.op_less, OpCode.op_not.toU8()),
             .tok_less => parser.emitOp(.op_less),
-            .tok_less_equal => parser.emitOps(.op_greater, .op_not),
+            .tok_less_equal => parser.emitBytes(.op_greater, OpCode.op_not.toU8()),
             .tok_plus => parser.emitOp(.op_add),
             .tok_minus => parser.emitOp(.op_substract),
             .tok_star => parser.emitOp(.op_multiply),
