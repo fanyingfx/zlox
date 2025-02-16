@@ -70,7 +70,7 @@ pub const Compiler = struct {
         if (current.scopeDepth == 0) return;
         current.locals[current.localCount - 1].depth = current.scopeDepth;
     }
-    fn init(compiler: *Compiler,parser: *ParserContext, typ: FunctionType) void{
+    fn init(compiler: *Compiler, parser: *ParserContext, typ: FunctionType) void {
         compiler.* = .{
             .enclosing = parser.currentCompiler,
             .upvalues = undefined,
@@ -110,7 +110,7 @@ pub const ParserContext = struct {
             .scanner = scanner,
             .compilingChunk = chunk,
             .collector = collector,
-            .currentCompiler =null,
+            .currentCompiler = null,
         };
     }
     // pub fn listLocals(parser: *ParserContext, compiler: *Compiler) void {
@@ -251,30 +251,19 @@ pub const ParserContext = struct {
         try parser.namedVariable(parser.previous, canAssign);
     }
     fn namedVariable(parser: *ParserContext, name: Token, canAssign: bool) Err!void {
-        var getOp: OpCode = undefined;
-        var setOp: OpCode = undefined;
+        const arg, const getOp: OpCode, const setOp: OpCode =
+            if (parser.resolveLocal(parser.currentCompiler.?, name)) |arg|
+            .{ arg, .op_get_local, .op_set_local }
+        else if (parser.resolveUpvalue(parser.currentCompiler.?, name)) |arg|
+            .{ arg, .op_get_upvalue, .op_set_upvalue }
+        else
+            .{ parser.identifierConstant(name), .op_get_global, .op_set_global };
 
-
-        var arg = parser.resolveLocal(parser.currentCompiler.?, name);
-        if (arg != null) {
-            getOp = .op_get_local;
-            setOp = .op_set_local;
-        } else {
-            if (parser.resolveUpvalue(parser.currentCompiler.?, name)) |arg_| {
-                arg = arg_;
-                getOp = .op_get_upvalue;
-                setOp = .op_set_upvalue;
-            } else {
-                arg = parser.identifierConstant(name);
-                getOp = .op_get_global;
-                setOp = .op_set_global;
-            }
-        }
         if (canAssign and parser.match(.tok_equal)) {
             try parser.expression();
-            parser.emitBytes(setOp, arg.?);
+            parser.emitBytes(setOp, arg);
         } else {
-            parser.emitBytes(getOp, arg.?);
+            parser.emitBytes(getOp, arg);
         }
     }
     fn group(parser: *ParserContext) Err!void {
