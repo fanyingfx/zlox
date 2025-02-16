@@ -70,26 +70,7 @@ pub const Compiler = struct {
         if (current.scopeDepth == 0) return;
         current.locals[current.localCount - 1].depth = current.scopeDepth;
     }
-};
-pub const ParserContext = struct {
-    current: Token,
-    previous: Token,
-    scanner: *Scanner,
-    compilingChunk: *Chunk,
-    collector: *Collector,
-    currentCompiler: ?*Compiler,
-
-    pub fn init(collector: *Collector, scanner: *Scanner, chunk: *Chunk) ParserContext {
-        return .{
-            .current = undefined,
-            .previous = undefined,
-            .scanner = scanner,
-            .compilingChunk = chunk,
-            .collector = collector,
-            .currentCompiler = null,
-        };
-    }
-    fn initCompiler(parser: *ParserContext, compiler: *Compiler, typ: FunctionType) void {
+    fn init(compiler: *Compiler,parser: *ParserContext, typ: FunctionType) void{
         compiler.* = .{
             .enclosing = parser.currentCompiler,
             .upvalues = undefined,
@@ -113,15 +94,34 @@ pub const ParserContext = struct {
         local.name.length = 0;
         local.isCaptured = false;
     }
-    pub fn listLocals(parser: *ParserContext, compiler: *Compiler) void {
-        std.debug.print("------listLocals", .{});
-        std.debug.print("--{x}------\n", .{@intFromPtr(compiler)});
-        defer std.debug.print("\n-------------\n", .{});
-        var i: usize = 0;
-        while (i < compiler.localCount) : (i += 1) {
-            std.debug.print("{s}, ", .{parser.tokenString(compiler.locals[i].name)});
-        }
+};
+pub const ParserContext = struct {
+    current: Token,
+    previous: Token,
+    scanner: *Scanner,
+    compilingChunk: *Chunk,
+    collector: *Collector,
+    currentCompiler: ?*Compiler,
+
+    pub fn init(collector: *Collector, scanner: *Scanner, chunk: *Chunk) ParserContext {
+        return .{
+            .current = undefined,
+            .previous = undefined,
+            .scanner = scanner,
+            .compilingChunk = chunk,
+            .collector = collector,
+            .currentCompiler =null,
+        };
     }
+    // pub fn listLocals(parser: *ParserContext, compiler: *Compiler) void {
+    //     std.debug.print("------listLocals", .{});
+    //     std.debug.print("--{x}------\n", .{@intFromPtr(compiler)});
+    //     defer std.debug.print("\n-------------\n", .{});
+    //     var i: usize = 0;
+    //     while (i < compiler.localCount) : (i += 1) {
+    //         std.debug.print("{s}, ", .{parser.tokenString(compiler.locals[i].name)});
+    //     }
+    // }
     pub fn advance(parser: *ParserContext) void {
         parser.previous = parser.current;
         parser.current = parser.scanner.scanToken();
@@ -372,7 +372,7 @@ pub const ParserContext = struct {
     }
     fn function(parser: *ParserContext, typ: FunctionType) Err!void {
         var compiler: Compiler = undefined;
-        parser.initCompiler(&compiler, typ);
+        compiler.init(parser, typ);
         parser.beginScope();
         try parser.consume(.tok_left_paren, "Expect '('");
         // function paramaters
@@ -534,6 +534,7 @@ pub const ParserContext = struct {
     fn emitLoop(parser: *ParserContext, loopStart: usize) void {
         parser.emitOp(.op_loop);
         const offset = parser.currentChunk().code.items.len - loopStart + 2;
+        // std.debug.print("loop offset = {}\n",.{offset});
         if (offset > std.math.maxInt(u16)) {
             std.debug.panic("Loop body too large.", .{});
         }
@@ -569,9 +570,6 @@ pub const ParserContext = struct {
             std.debug.panic("Too many constants in on chunk", .{});
         }
         return @intCast(constant);
-    }
-    fn getFuncName(name: ?*ObjString) []const u8 {
-        return if (name) |name_| name_.chars else "script";
     }
 
     fn resolveLocal(parser: *ParserContext, compiler: *Compiler, name: Token) ?u8 {
@@ -640,7 +638,7 @@ pub fn compile(collector: *Collector, source: []const u8, compilingchunk: *Chunk
 
     var compiler: Compiler = undefined;
     var parser = ParserContext.init(collector, &scanner, compilingchunk);
-    parser.initCompiler(&compiler, .script);
+    compiler.init(&parser, .script);
     parser.advance();
     while (!parser.match(.tok_eof)) {
         try parser.declaration();

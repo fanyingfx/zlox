@@ -12,8 +12,10 @@ pub fn build(b: *std.Build) void {
     const options=  b.addOptions();
     const print_stack= b.option(bool,"stack","Show stack") orelse false;
     const enable_debug= b.option(bool,"debug","Enable debug") orelse false;
+    const show_ir = b.option(bool,"ir","Show IR") orelse false;
     options.addOption(bool, "print_stack",print_stack);
     options.addOption(bool, "enable_debug",enable_debug);
+    options.addOption(bool,"show_ir",show_ir);
 
 
 

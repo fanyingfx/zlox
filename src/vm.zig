@@ -173,7 +173,12 @@ pub const VM = struct {
         var chunk = Chunk.init(vm.collector.allocator);
         defer chunk.deinit();
         const function = try compiler.compile(vm.collector, source, &chunk);
+        if(comptime config.show_ir){
+            function.showIR();
+        }
         vm.push(function.toValue());
+
+
         const closure = vm.collector.allocateClosure(function);
         _ = vm.pop();
         vm.push(closure.toValue());
@@ -279,7 +284,6 @@ pub const VM = struct {
                 .op_loop => {
                     const offset = frame.read_u16();
                     frame.ip -= offset;
-                    break;
                 },
                 .op_define_global => {
                     const name = frame.read_string();

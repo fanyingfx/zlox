@@ -1,6 +1,7 @@
 const std = @import("std");
 const Chunk = @import("chunk.zig");
 const Value = @import("value.zig").Value;
+const debug = @import("debug.zig");
 
 pub const ObjType = enum {
     obj_string,
@@ -28,17 +29,22 @@ pub const ObjFunction = struct {
     pub fn asObjPtr(objFunc: *ObjFunction) *Obj {
         return &objFunc.obj;
     }
+    pub fn showIR(func: ObjFunction) void {
+        var ip: usize = 0;
+        while (ip < func.chunk.code.items.len) {
+            ip = debug.disassembleInstruction(&func.chunk, ip);
+        }
+    }
 
     pub fn toValue(objFunction: *ObjFunction) Value {
         return .{ .type = .val_obj, .as = .{ .obj = &objFunction.obj } };
-        
     }
 };
 pub const ObjClosure = struct {
     obj: Obj,
     function: *ObjFunction,
-    upvalues:[]?*ObjUpvalue,
-    upvalueCount:usize,
+    upvalues: []?*ObjUpvalue,
+    upvalueCount: usize,
     pub fn deinit(self: *ObjClosure, allocator: std.mem.Allocator) void {
         allocator.free(self.upvalues);
         allocator.destroy(self);
@@ -53,8 +59,8 @@ pub const ObjClosure = struct {
 pub const ObjUpvalue = struct {
     obj: Obj,
     location: *Value,
-    closed:Value,
-    next:?*ObjUpvalue,
+    closed: Value,
+    next: ?*ObjUpvalue,
     pub fn asObjPtr(objUpvalue: *ObjUpvalue) *Obj {
         return &objUpvalue.obj;
     }
@@ -93,7 +99,7 @@ pub fn printObject(value: Value) void {
         .obj_string => std.debug.print("{s}", .{value.as_string()}),
         .obj_function => printFunction(value.as_function()),
         .obj_closure => printFunction(value.as_closure().function),
-        .obj_upvalue => std.debug.print("upvalue",.{}),
+        .obj_upvalue => std.debug.print("upvalue", .{}),
     }
 }
 fn printFunction(function: *ObjFunction) void {

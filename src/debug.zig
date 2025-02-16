@@ -1,5 +1,5 @@
 const std = @import("std");
-const Chunk = @import("chunk.zig").Chunk;
+const Chunk = @import("chunk.zig");
 const OpCode = @import("opCode.zig").OpCode;
 const value = @import("value.zig");
 pub fn disassembleChunk(chunk: *const Chunk, name: []const u8) void {
@@ -46,9 +46,9 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) usize {
             const function = chunk.constants.items[constant].as_function();
             var j: usize = 0;
             while (j < function.upvalueCount) : (j += 1) {
-                const isLocal = chunk.code.items[_offset];
+                const isLocal = chunk.code.items[_offset] != 0;
                 _offset += 1;
-                const index = chunk.code[_offset];
+                const index = chunk.code.items[_offset];
                 _offset += 1;
                 std.debug.print("{d:4}      |                     {s} {d}\n", .{ _offset - 2, if (isLocal) "local" else "upvalue", index });
             }
@@ -71,8 +71,7 @@ fn simpleInstruction(name: []const u8, offset: usize) usize {
 fn constantInstruction(name: []const u8, chunk: *const Chunk, offset: usize) usize {
     const constant = chunk.code.items[offset + 1];
     std.debug.print("{s:<16} {d:4} '", .{ name, constant });
-    value.printValue(chunk.constants.items[constant]);
-    std.debug.print("'\n", .{});
+    chunk.constants.items[constant].printValueLn();
     return offset + 2;
 }
 fn byteInstruction(name: []const u8, chunk: *const Chunk, offset: usize) usize {
