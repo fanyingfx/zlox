@@ -68,7 +68,6 @@ pub const Scanner = struct {
             'a'...'z', '_', 'A'...'Z' => return self.identifier(),
             '"' => return self.string(),
             else => {
-                // std.debug.print("source = {s}\n", .{self.source[self.start..self.current]});
                 std.debug.panic("'{c}' is unknown token!", .{c});
             },
         }
@@ -96,7 +95,6 @@ pub const Scanner = struct {
         while (true) {
             if (self.isAtEnd()) return;
             const c = self.peek();
-            // std.debug.print("{c}\n",.{c});
             switch (c) {
                 ' ', '\r', '\t' => _ = self.advance(),
                 '\n' => {
@@ -206,9 +204,4 @@ pub const Token = struct {
     start: usize,
     length: usize,
     line: usize,
-    // pub fn eql(self: *const Token, other: *const Token) bool {
-    //     return self.type == other.type and
-    //         self.start == other.start and
-    //         self.length == other.length;
-    // }
 };

@@ -87,3 +87,7 @@ fn jumpInstruction(name: []const u8, sign: isize, chunk: *const Chunk, offset: u
     std.debug.print("{s:<16} {d:4} -> {d}\n", .{ name, offset, jumpTo });
     return offset + 3;
 }
+
+pub fn debug_log(comptime src:std.builtin.SourceLocation,msg:[]const u8)void{
+    std.debug.print("{s}:{d} <fn {s}> {s}\n",.{src.file,src.line,src.fn_name,msg});
+}

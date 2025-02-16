@@ -25,11 +25,6 @@ pub fn write(self: *Chunk, byte: anytype, line: usize) void {
     self.code.append(byte_) catch unreachable;
     self.lines.append(line) catch unreachable;
 }
-// pub fn writeOp(self: *Chunk, opCode: OpCode, line: usize) void {
-//     self.write(opCode,line);
-    // self.code.append(@intFromEnum(opCode)) catch unreachable;
-    // self.lines.append(line) catch unreachable;
-// }
 pub fn addConstant(self: *Chunk, value_: value.Value) usize {
     self.constants.append(value_) catch unreachable;
     return self.constants.items.len - 1;

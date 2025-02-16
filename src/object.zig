@@ -31,6 +31,7 @@ pub const ObjFunction = struct {
 
     pub fn toValue(objFunction: *ObjFunction) Value {
         return .{ .type = .val_obj, .as = .{ .obj = &objFunction.obj } };
+        
     }
 };
 pub const ObjClosure = struct {

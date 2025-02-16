@@ -58,7 +58,7 @@ pub const VM = struct {
     chunk: *const Chunk,
     stack: [STACK_MAX]Value,
     collector: *Collector,
-    openUpvalues:?*ObjUpvalue,
+    openUpvalues: ?*ObjUpvalue,
     stackTop: usize,
     globals: Table,
     base: usize = 0,
@@ -119,36 +119,34 @@ pub const VM = struct {
             std.debug.panic("stack overflow\n", .{});
         }
         const frame = &vm.frames[vm.frameCount];
-        frame.closure = closure;
         vm.frameCount += 1;
-        // frame.function = function;
+        frame.closure = closure;
         frame.ip = 0;
         vm.base = vm.stackTop - argCount - 1;
         frame.slots = vm.stack[vm.base..];
     }
-    fn captureUpvalue(vm:*VM,local:*Value)*ObjUpvalue{
-        var prevUpvalue:?*ObjUpvalue = null;
+    fn captureUpvalue(vm: *VM, local: *Value) *ObjUpvalue {
+        var prevUpvalue: ?*ObjUpvalue = null;
         var upvalue = vm.openUpvalues;
-        while(upvalue != null and @intFromPtr(upvalue.?.location) > @intFromPtr(local) ){
+        while (upvalue != null and @intFromPtr(upvalue.?.location) > @intFromPtr(local)) {
             prevUpvalue = upvalue;
             upvalue = upvalue.?.next;
         }
-        if(upvalue != null and upvalue.?.location == local ){
+        if (upvalue != null and upvalue.?.location == local) {
             return upvalue.?;
         }
-        
-        const createdUpvalue= vm.collector.allocateUpvalue(local);
+
+        const createdUpvalue = vm.collector.allocateUpvalue(local);
         createdUpvalue.next = upvalue;
-        if(prevUpvalue == null){
+        if (prevUpvalue == null) {
             vm.openUpvalues = createdUpvalue;
-        }else{
+        } else {
             prevUpvalue.?.next = createdUpvalue;
         }
         return createdUpvalue;
-
     }
-    fn closeUpvalues(vm:*VM,last:*Value)void{
-        while(vm.openUpvalues != null and @intFromPtr(vm.openUpvalues.?.location) >= @intFromPtr(last)){
+    fn closeUpvalues(vm: *VM, last: *Value) void {
+        while (vm.openUpvalues != null and @intFromPtr(vm.openUpvalues.?.location) >= @intFromPtr(last)) {
             const upvalue = vm.openUpvalues.?;
             upvalue.closed = upvalue.location.*;
             upvalue.location = &upvalue.closed;
@@ -175,7 +173,6 @@ pub const VM = struct {
         var chunk = Chunk.init(vm.collector.allocator);
         defer chunk.deinit();
         const function = try compiler.compile(vm.collector, source, &chunk);
-        vm.chunk = &chunk;
         vm.push(function.toValue());
         const closure = vm.collector.allocateClosure(function);
         _ = vm.pop();
@@ -302,7 +299,7 @@ pub const VM = struct {
                     const name = frame.read_string();
                     if (vm.globals.set(name, vm.peek(0))) {
                         _ = vm.globals.delete(name);
-                        std.debug.print("Undefined variable '{s}'.", .{name.chars});
+                        std.debug.print("Undefined variable '{s}'.\n", .{name.chars});
                         return error.RuntimeError;
                     }
                 },
@@ -326,33 +323,33 @@ pub const VM = struct {
                     const func = frame.read_constant().as_function();
                     const closure = vm.collector.allocateClosure(func);
                     vm.push(closure.toValue());
-                    for(0..closure.upvalueCount)|i|{
+
+                    for (0..closure.upvalueCount) |i| {
                         const isLocal = frame.read_byte() != 0;
-                        const index:usize = @intCast(frame.read_byte());
-                        if(isLocal){
-                            closure.upvalues[i]=vm.captureUpvalue(&frame.slots[index]);
-                        }else{
-                            closure.upvalues[i]=frame.closure.upvalues[index].?;
+                        const index: usize = @intCast(frame.read_byte());
+
+                        if (isLocal) {
+                            closure.upvalues[i] = vm.captureUpvalue(&frame.slots[index]);
+                        } else {
+                            closure.upvalues[i] = frame.closure.upvalues[index].?;
                         }
                     }
                 },
-                .op_get_upvalue =>{
-                    const slot:usize = @intCast(frame.read_byte());
+                .op_get_upvalue => {
+                    const slot: usize = @intCast(frame.read_byte());
                     vm.push(frame.closure.upvalues[slot].?.location.*);
-
-
                 },
                 .op_set_upvalue => {
-                    const slot:usize =  @intCast(frame.read_byte());
+                    const slot: usize = @intCast(frame.read_byte());
                     frame.closure.upvalues[slot].?.location.* = vm.peek(0);
                 },
-                .op_close_upvalue=>{
+                .op_close_upvalue => {
                     vm.closeUpvalues(&vm.stack[vm.stackTop - 1]);
-                    _= vm.pop();
+                    _ = vm.pop();
                 },
                 .op_return => {
                     const result = vm.pop();
-                    vm.closeUpvalues(&frame.slots[0]); // TODO
+                    vm.closeUpvalues(&frame.slots[0]);
                     vm.frameCount -= 1;
                     if (vm.frameCount == 0) {
                         _ = vm.pop();
